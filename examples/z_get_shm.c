@@ -56,21 +56,18 @@ int main(int argc, char** argv) {
 
     printf("Opening session...\n");
     z_owned_session_t s;
-    if (z_open(&s, z_move(config), NULL)) {
+    if (z_open(&s, z_move(config), NULL) < 0) {
         printf("Unable to open session!\n");
         exit(-1);
     }
 
     // Create SHM Provider
-    z_alloc_alignment_t alignment = {0};
-    z_owned_memory_layout_t layout;
-    z_memory_layout_new(&layout, value_len, alignment);
     z_owned_shm_provider_t provider;
-    z_posix_shm_provider_new(&provider, z_loan(layout));
+    z_shm_provider_default_new(&provider, value_len);
 
     // Allocate SHM Buffer
     z_buf_layout_alloc_result_t alloc;
-    z_shm_provider_alloc(&alloc, z_loan(provider), value_len, alignment);
+    z_shm_provider_alloc(&alloc, z_loan(provider), value_len);
     if (alloc.status != ZC_BUF_LAYOUT_ALLOC_STATUS_OK) {
         printf("Unexpected failure during SHM buffer allocation...");
         return -1;
@@ -128,7 +125,6 @@ int main(int argc, char** argv) {
 
     z_drop(z_move(shm));
     z_drop(z_move(provider));
-    z_drop(z_move(layout));
     return 0;
 }
 
