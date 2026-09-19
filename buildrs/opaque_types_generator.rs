@@ -9,9 +9,21 @@ pub fn generate_opaque_types() {
     let type_to_inner_field_name = HashMap::from([("z_id_t", "pub id")]);
     let current_folder = get_out_rs_path();
     let (command, path_in) = produce_opaque_types_data();
-    let path_out = current_folder.join("./opaque_types.rs");
+    let path_out = current_folder.join("opaque_types.rs");
 
-    let data_in = std::fs::read_to_string(path_in).unwrap();
+    let data_in = std::fs::read_to_string(path_in)
+        .unwrap()
+        // The first error may only be preceded by a `\r`,
+        // so this ensures it will be included in `total_error_count`
+        .replace('\r', "\n");
+
+    // Check for cargo-level errors (dependency resolution, manifest parsing, etc.)
+    if data_in.contains("error: failed to") || data_in.contains("Caused by:") {
+        panic!(
+            "Failed to generate opaque types due to cargo error:\n\nCommand executed:\n\n{command}\n\nCargo output:\n\n{data_in}"
+        );
+    }
+
     let mut data_out = String::new();
     let mut docs = get_opaque_type_docs();
 
@@ -20,6 +32,15 @@ pub fn generate_opaque_types() {
         .lines()
         .filter(|line| line.starts_with("error[E"))
         .count();
+
+    // The "panic" feature makes every opaque type produce a compilation error, so no error at all
+    // means that cargo failed before compiling opaque-types, with a message not matched above
+    // (e.g. "error: no matching package named ... found" in offline dependency resolution).
+    if total_error_count == 0 {
+        panic!(
+            "Failed to generate opaque types: no type information found in the build output\n\nCommand executed:\n\n{command}\n\nCargo output:\n\n{data_in}"
+        );
+    }
 
     // Scan for type size and layout information which is generated as compilation errors
     let mut good_error_count = 0;
@@ -84,10 +105,7 @@ impl Drop for {type_name} {{
     if good_error_count != total_error_count {
         panic!(
             "Failed to generate opaque types: there are {} errors in the input data, but only {} of them were processed as information about opaque types\n\nCommand executed:\n\n{}\n\nCompiler output:\n\n{}",
-            total_error_count,
-            good_error_count,
-            command,
-            data_in
+            total_error_count, good_error_count, command, data_in
         );
     }
 
@@ -97,8 +115,8 @@ impl Drop for {type_name} {{
 fn produce_opaque_types_data() -> (String, PathBuf) {
     let target = std::env::var("TARGET").unwrap();
     let linker = std::env::var("RUSTC_LINKER").unwrap_or_default();
-    let manifest_path = get_build_rs_path().join("./build-resources/opaque-types/Cargo.toml");
-    let output_file_path = get_out_rs_path().join("./.build_resources_opaque_types.txt");
+    let manifest_path = get_build_rs_path().join("build-resources/opaque-types/Cargo.toml");
+    let output_file_path = get_out_rs_path().join("build_resources_opaque_types.txt");
     let out_file = std::fs::File::create(output_file_path.clone()).unwrap();
     let stdio = std::process::Stdio::from(out_file);
 
@@ -113,18 +131,52 @@ fn produce_opaque_types_data() -> (String, PathBuf) {
         feature_args.push("-F");
         feature_args.push(feature);
     }
+    // Set by CMake when the ZENOHC_MSRV_1_75 option is on. The opaque types get the same crate
+    // versions as the main build through the copied Cargo.lock, but not the features selected
+    // by zenoh-pinned-deps-1-75: the msrv_1_75 feature enables those that are required
+    // in opaque-types/Cargo.toml.
+    if std::env::var("ZENOHC_MSRV_1_75").is_ok_and(|v| !v.is_empty()) {
+        feature_args.push("-F");
+        feature_args.push("msrv_1_75");
+    }
 
-    let mut command = std::process::Command::new("cargo");
+    // The cargo command can be overridden with the CARGO_COMMAND environment variable
+    // (same variable as used by colcon-cargo), e.g. 'cargo-1.91' on Ubuntu.
+    // In this case the toolchain is ignored, since the toolchain is already baked into the cargo command.
+    // Otherwise fall back to the default cargo command and toolchain.
+    let mut command = match std::env::var("CARGO_COMMAND") {
+        Ok(cargo_command) if !cargo_command.is_empty() => std::process::Command::new(cargo_command),
+        _ => {
+            let mut command = std::process::Command::new("cargo");
+            // Preserve the toolchain channel if one was specified (e.g., +1.75)
+            if let Ok(toolchain) = std::env::var("RUSTUP_TOOLCHAIN") {
+                command.arg(format!("+{}", toolchain));
+            }
+            command
+        }
+    };
+
     command
         .arg("build")
+        .arg("--no-default-features")
         .args(feature_args)
         .args(linker_args)
+        .arg("--color")
+        .arg("never")
+        .arg("--offline") // The opaque types are supposed to use same crates as the main build
         .arg("--target")
         .arg(target)
         .arg("--manifest-path")
         .arg(manifest_path)
         .arg("--target-dir")
-        .arg(get_out_rs_path().join("./build_resources/opaque_types"));
+        .arg(match std::env::var("OPAQUE_TYPES_BUILD_DIR") {
+            Ok(opaque_types_build_dir) => {
+                build_print::info!("OPAQUE_TYPES_BUILD_DIR = {}", opaque_types_build_dir);
+                opaque_types_build_dir.into()
+            }
+            Err(_) => get_out_rs_path().join("build_resources/opaque_types"),
+        });
+
     let command_str = format!("{:?}", command);
     let _ = command.stderr(stdio).output().unwrap();
     (command_str, output_file_path)
@@ -132,7 +184,7 @@ fn produce_opaque_types_data() -> (String, PathBuf) {
 
 fn get_opaque_type_docs() -> HashMap<String, Vec<String>> {
     let current_folder = get_build_rs_path();
-    let path_in = current_folder.join("./build-resources/opaque-types/src/lib.rs");
+    let path_in = current_folder.join("build-resources/opaque-types/src/lib.rs");
     let re = Regex::new(r"(?m)^get_opaque_type_data!\(\s*(.*)\s*,\s*(\w+)\s*(,)?\s*\);").unwrap();
     let mut comments = Vec::new();
     let mut opaque_lines = Vec::new();

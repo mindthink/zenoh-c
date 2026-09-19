@@ -99,11 +99,11 @@ pub extern "C" fn z_closure_sample_call(
     let closure = closure.as_owned_c_type_ref();
     match closure._call {
         Some(call) => call(sample, closure._context),
-        None => tracing::error!("Attempted to call an uninitialized closure!"),
+        None => crate::report_error!("Attempted to call an uninitialized closure!"),
     }
 }
 
-/// Drops the closure. Droping an uninitialized closure is a no-op.
+/// Drops the closure. Dropping an uninitialized closure is a no-op.
 #[no_mangle]
 pub extern "C" fn z_closure_sample_drop(closure_: &mut z_moved_closure_sample_t) {
     let _ = closure_.take_rust_type();

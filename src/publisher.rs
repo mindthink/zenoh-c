@@ -14,32 +14,29 @@
 
 use std::mem::MaybeUninit;
 
-#[cfg(feature = "unstable")]
-use zenoh::{handlers::Callback, matching::MatchingStatus};
 use zenoh::{
+    handlers::Callback,
     internal::traits::{EncodingBuilderTrait, SampleBuilderTrait, TimestampBuilderTrait},
+    matching::MatchingStatus,
     pubsub::{Publisher, PublisherBuilder},
     qos::{CongestionControl, Priority},
     session::SessionClosedError,
     Wait,
 };
 
-#[cfg(feature = "unstable")]
-use crate::z_moved_closure_matching_status_t;
 use crate::{
     result::{self},
     transmute::{LoanedCTypeRef, RustTypeRef, RustTypeRefUninit, TakeRustType},
-    z_congestion_control_t, z_loaned_keyexpr_t, z_loaned_session_t, z_moved_bytes_t,
-    z_moved_encoding_t, z_priority_t, z_timestamp_t,
+    z_closure_matching_status_call, z_closure_matching_status_loan, z_congestion_control_t,
+    z_loaned_keyexpr_t, z_loaned_session_t, z_locality_default, z_locality_t, z_matching_status_t,
+    z_moved_bytes_t, z_moved_closure_matching_status_t, z_moved_encoding_t,
+    z_owned_matching_listener_t, z_priority_t, z_timestamp_t,
 };
 #[cfg(feature = "unstable")]
 use crate::{
-    transmute::IntoCType, z_closure_matching_status_call, z_closure_matching_status_loan,
-    z_entity_global_id_t, z_reliability_default, z_reliability_t, zc_locality_default,
-    zc_locality_t,
+    transmute::IntoCType, z_entity_global_id_t, z_reliability_default, z_reliability_t,
+    z_source_info_t,
 };
-#[cfg(feature = "unstable")]
-use crate::{z_matching_status_t, z_moved_source_info_t, z_owned_matching_listener_t};
 /// Options passed to the `z_declare_publisher()` function.
 #[repr(C)]
 pub struct z_publisher_options_t {
@@ -56,11 +53,8 @@ pub struct z_publisher_options_t {
     ///
     /// The publisher reliability.
     pub reliability: z_reliability_t,
-    #[cfg(feature = "unstable")]
-    /// @warning This API has been marked as unstable: it works as advertised, but it may be changed in a future release.
-    ///
     /// The allowed destination for this publisher.
-    pub allowed_destination: zc_locality_t,
+    pub allowed_destination: z_locality_t,
 }
 
 impl Default for z_publisher_options_t {
@@ -72,8 +66,7 @@ impl Default for z_publisher_options_t {
             is_express: false,
             #[cfg(feature = "unstable")]
             reliability: z_reliability_default(),
-            #[cfg(feature = "unstable")]
-            allowed_destination: zc_locality_default(),
+            allowed_destination: z_locality_default(),
         }
     }
 }
@@ -102,12 +95,11 @@ pub(crate) fn _declare_publisher_inner(
         p = p
             .congestion_control(options.congestion_control.into())
             .priority(options.priority.into())
-            .express(options.is_express);
+            .express(options.is_express)
+            .allowed_destination(options.allowed_destination.into());
         #[cfg(feature = "unstable")]
         {
-            p = p
-                .reliability(options.reliability.into())
-                .allowed_destination(options.allowed_destination.into());
+            p = p.reliability(options.reliability.into());
         }
         if let Some(encoding) = options.encoding.take() {
             p = p.encoding(encoding.take_rust_type());
@@ -138,7 +130,7 @@ pub extern "C" fn z_declare_publisher(
     let p = _declare_publisher_inner(session, key_expr, options);
     match p.wait() {
         Err(e) => {
-            tracing::error!("{}", e);
+            crate::report_error!("{}", e);
             this.write(None);
             result::Z_EGENERIC
         }
@@ -196,7 +188,7 @@ pub struct z_publisher_put_options_t {
     /// @warning This API has been marked as unstable: it works as advertised, but it may be changed in a future release.
     ///
     /// The source info for the publication.
-    pub source_info: Option<&'static mut z_moved_source_info_t>,
+    pub source_info: Option<&'static z_source_info_t>,
     /// The attachment to attach to the publication.
     pub attachment: Option<&'static mut z_moved_bytes_t>,
 }
@@ -216,7 +208,7 @@ pub extern "C" fn z_publisher_put_options_default(
     });
 }
 
-pub(crate) fn _apply_pubisher_put_options<
+pub(crate) fn _apply_publisher_put_options<
     T: SampleBuilderTrait + TimestampBuilderTrait + EncodingBuilderTrait,
 >(
     builder: T,
@@ -227,8 +219,8 @@ pub(crate) fn _apply_pubisher_put_options<
         builder = builder.encoding(encoding.take_rust_type());
     };
     #[cfg(feature = "unstable")]
-    if let Some(source_info) = options.source_info.take() {
-        builder = builder.source_info(source_info.take_rust_type());
+    if let Some(source_info) = options.source_info {
+        builder = builder.source_info(source_info.as_rust_type_ref().clone());
     };
     if let Some(attachment) = options.attachment.take() {
         builder = builder.attachment(attachment.take_rust_type());
@@ -260,14 +252,14 @@ pub unsafe extern "C" fn z_publisher_put(
     let payload = payload.take_rust_type();
     let mut put = publisher.put(payload);
     if let Some(options) = options {
-        put = _apply_pubisher_put_options(put, options);
+        put = _apply_publisher_put_options(put, options);
     }
 
     match put.wait() {
         Ok(_) => result::Z_OK,
         Err(e) if e.downcast_ref::<SessionClosedError>().is_some() => result::Z_ESESSION_CLOSED,
         Err(e) => {
-            tracing::error!("{}", e);
+            crate::report_error!("{}", e);
             result::Z_EGENERIC
         }
     }
@@ -291,7 +283,7 @@ pub extern "C" fn z_publisher_delete_options_default(
     this.write(z_publisher_delete_options_t::default());
 }
 
-pub(crate) fn _apply_pubisher_delete_options<T: TimestampBuilderTrait>(
+pub(crate) fn _apply_publisher_delete_options<T: TimestampBuilderTrait>(
     builder: T,
     options: &mut z_publisher_delete_options_t,
 ) -> T {
@@ -314,10 +306,10 @@ pub extern "C" fn z_publisher_delete(
     let publisher = publisher.as_rust_type_ref();
     let mut del = publisher.delete();
     if let Some(options) = options {
-        del = _apply_pubisher_delete_options(del, options);
+        del = _apply_publisher_delete_options(del, options);
     }
     if let Err(e) = del.wait() {
-        tracing::error!("{}", e);
+        crate::report_error!("{}", e);
         result::Z_EGENERIC
     } else {
         result::Z_OK
@@ -340,7 +332,6 @@ pub extern "C" fn z_publisher_keyexpr(publisher: &z_loaned_publisher_t) -> &z_lo
         .as_loaned_c_type_ref()
 }
 
-#[cfg(feature = "unstable")]
 fn _publisher_matching_listener_declare_inner<'a>(
     publisher: &'a z_loaned_publisher_t,
     callback: &mut z_moved_closure_matching_status_t,
@@ -349,7 +340,7 @@ fn _publisher_matching_listener_declare_inner<'a>(
     let callback = callback.take_rust_type();
     let listener = publisher
         .matching_listener()
-        .callback_mut(move |matching_status| {
+        .callback(move |matching_status| {
             let status = z_matching_status_t {
                 matching: matching_status.matching(),
             };
@@ -358,8 +349,6 @@ fn _publisher_matching_listener_declare_inner<'a>(
     listener
 }
 
-#[cfg(feature = "unstable")]
-/// @warning This API has been marked as unstable: it works as advertised, but it may be changed in a future release.
 /// @brief Constructs matching listener, registering a callback for notifying subscribers matching with a given publisher.
 ///
 /// @param publisher: A publisher to associate with matching listener.
@@ -382,14 +371,12 @@ pub extern "C" fn z_publisher_declare_matching_listener(
         }
         Err(e) => {
             this.write(None);
-            tracing::error!("{}", e);
+            crate::report_error!("{}", e);
             result::Z_EGENERIC
         }
     }
 }
 
-#[cfg(feature = "unstable")]
-/// @warning This API has been marked as unstable: it works as advertised, but it may be changed in a future release.
 /// @brief Declares a matching listener, registering a callback for notifying subscribers matching with a given publisher.
 /// The callback will be run in the background until the corresponding publisher is dropped.
 ///
@@ -406,14 +393,12 @@ pub extern "C" fn z_publisher_declare_background_matching_listener(
     match listener.background().wait() {
         Ok(_) => result::Z_OK,
         Err(e) => {
-            tracing::error!("{}", e);
+            crate::report_error!("{}", e);
             result::Z_EGENERIC
         }
     }
 }
 
-#[cfg(feature = "unstable")]
-/// @warning This API has been marked as unstable: it works as advertised, but it may be changed in a future release.
 /// @brief Gets publisher matching status - i.e. if there are any subscribers matching its key expression.
 ///
 /// @return 0 in case of success, negative error code otherwise (in this case matching_status is not updated).
@@ -431,7 +416,7 @@ pub extern "C" fn z_publisher_get_matching_status(
             result::Z_OK
         }
         Err(e) => {
-            tracing::error!("{}", e);
+            crate::report_error!("{}", e);
             result::Z_ENETWORK
         }
     }
@@ -442,7 +427,7 @@ pub extern "C" fn z_publisher_get_matching_status(
 #[no_mangle]
 #[allow(clippy::missing_safety_doc)]
 pub extern "C" fn z_publisher_drop(this: &mut z_moved_publisher_t) {
-    std::mem::drop(this.take_rust_type())
+    let _ = z_undeclare_publisher(this);
 }
 
 #[no_mangle]
@@ -451,8 +436,8 @@ pub extern "C" fn z_publisher_drop(this: &mut z_moved_publisher_t) {
 /// @return 0 in case of success, negative error code otherwise.
 pub extern "C" fn z_undeclare_publisher(this_: &mut z_moved_publisher_t) -> result::z_result_t {
     if let Some(p) = this_.take_rust_type() {
-        if let Err(e) = p.undeclare().wait() {
-            tracing::error!("{}", e);
+        if let Err(e) = p.undeclare().wait_callbacks().wait() {
+            crate::report_error!("{}", e);
             return result::Z_ENETWORK;
         }
     }

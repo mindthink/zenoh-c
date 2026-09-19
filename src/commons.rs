@@ -16,25 +16,18 @@ use std::{mem::MaybeUninit, ptr::null};
 
 use libc::c_ulong;
 #[cfg(feature = "unstable")]
-use zenoh::{
-    qos::Reliability,
-    query::ReplyKeyExpr,
-    sample::{Locality, SourceInfo},
-    session::EntityGlobalId,
-};
+use zenoh::{qos::Reliability, sample::SourceInfo, session::EntityGlobalId};
 use zenoh::{
     qos::{CongestionControl, Priority},
-    query::{ConsolidationMode, QueryTarget},
-    sample::{Sample, SampleKind},
+    query::{ConsolidationMode, QueryTarget, ReplyKeyExpr},
+    sample::{Locality, Sample, SampleKind},
     time::Timestamp,
 };
 
 #[cfg(feature = "unstable")]
-use crate::transmute::Gravestone;
-#[cfg(feature = "unstable")]
 use crate::transmute::IntoCType;
 #[cfg(feature = "unstable")]
-use crate::z_moved_source_info_t;
+use crate::z_source_info_t;
 use crate::{
     result,
     transmute::{CTypeRef, LoanedCTypeRef, RustTypeRef, RustTypeRefUninit, TakeRustType},
@@ -49,7 +42,7 @@ pub type z_zint_t = c_ulong;
 #[repr(C)]
 #[derive(Clone, Copy, Debug)]
 pub enum z_sample_kind_t {
-    /// The Sample was issued by a ``put`` operation.
+    /// The Sample was issued by a ``put`` operation. [Default]
     PUT = 0,
     /// The Sample was issued by a ``delete`` operation.
     DELETE = 1,
@@ -158,13 +151,13 @@ pub extern "C" fn z_sample_attachment(this_: &z_loaned_sample_t) -> *const z_loa
 }
 #[cfg(feature = "unstable")]
 /// @warning This API has been marked as unstable: it works as advertised, but it may be changed in a future release.
-/// @brief Returns the sample source_info.
+/// @brief Returns the sample source_info. Will return NULL, if source info is not set.
 #[no_mangle]
-pub extern "C" fn z_sample_source_info(this_: &z_loaned_sample_t) -> &z_loaned_source_info_t {
+pub extern "C" fn z_sample_source_info(this_: &z_loaned_sample_t) -> Option<&z_source_info_t> {
     this_
         .as_rust_type_ref()
         .source_info()
-        .as_loaned_c_type_ref()
+        .map(|si| si.as_ctype_ref())
 }
 
 /// Constructs an owned shallow copy of the sample (i.e. all modficiations applied to the copy, might be visible in the original) in provided uninitilized memory location.
@@ -259,8 +252,8 @@ pub extern "C" fn z_internal_sample_null(this_: &mut MaybeUninit<z_owned_sample_
 /// The locality of samples to be received by subscribers or targeted by publishers.
 #[repr(C)]
 #[derive(Clone, Copy, Debug)]
-pub enum zc_locality_t {
-    /// Any
+pub enum z_locality_t {
+    /// Any.[Default]
     ANY = 0,
     /// Only from local sessions.
     SESSION_LOCAL = 1,
@@ -268,33 +261,36 @@ pub enum zc_locality_t {
     REMOTE = 2,
 }
 
-#[cfg(feature = "unstable")]
-impl From<Locality> for zc_locality_t {
+impl From<Locality> for z_locality_t {
     fn from(k: Locality) -> Self {
         match k {
-            Locality::Any => zc_locality_t::ANY,
-            Locality::SessionLocal => zc_locality_t::SESSION_LOCAL,
-            Locality::Remote => zc_locality_t::REMOTE,
+            Locality::Any => z_locality_t::ANY,
+            Locality::SessionLocal => z_locality_t::SESSION_LOCAL,
+            Locality::Remote => z_locality_t::REMOTE,
         }
     }
 }
 
-#[cfg(feature = "unstable")]
-impl From<zc_locality_t> for Locality {
-    fn from(k: zc_locality_t) -> Self {
+impl From<z_locality_t> for Locality {
+    fn from(k: z_locality_t) -> Self {
         match k {
-            zc_locality_t::ANY => Locality::Any,
-            zc_locality_t::SESSION_LOCAL => Locality::SessionLocal,
-            zc_locality_t::REMOTE => Locality::Remote,
+            z_locality_t::ANY => Locality::Any,
+            z_locality_t::SESSION_LOCAL => Locality::SessionLocal,
+            z_locality_t::REMOTE => Locality::Remote,
         }
     }
 }
 
-#[cfg(feature = "unstable")]
-/// @warning This API has been marked as unstable: it works as advertised, but it may be changed in a future release.
-/// @brief Returns default value of `zc_locality_t`
+/// @brief Returns default value of `z_locality_t`
 #[no_mangle]
-pub extern "C" fn zc_locality_default() -> zc_locality_t {
+pub extern "C" fn z_locality_default() -> z_locality_t {
+    Locality::default().into()
+}
+
+/// @warning This API is deprecated. Please use `z_locality_default().
+/// @brief Returns default value of `z_locality_t`
+#[no_mangle]
+pub extern "C" fn zc_locality_default() -> z_locality_t {
     Locality::default().into()
 }
 
@@ -307,9 +303,9 @@ pub extern "C" fn zc_locality_default() -> zc_locality_t {
 #[repr(C)]
 #[derive(Clone, Copy)]
 pub enum z_reliability_t {
-    /// Defines reliability as ``BEST_EFFORT``
+    /// Defines reliability as ``BEST_EFFORT``.
     BEST_EFFORT = 0,
-    /// Defines reliability as ``RELIABLE``
+    /// Defines reliability as ``RELIABLE``.[Default]
     RELIABLE = 1,
 }
 
@@ -343,43 +339,37 @@ impl From<z_reliability_t> for Reliability {
     }
 }
 
-#[cfg(feature = "unstable")]
-/// @warning This API has been marked as unstable: it works as advertised, but it may be changed in a future release.
 /// @brief Key expressions types to which Queryable should reply to.
 #[repr(C)]
 #[derive(Clone, Copy, Debug)]
-pub enum zc_reply_keyexpr_t {
+pub enum z_reply_keyexpr_t {
     /// Replies to any key expression queries.
     ANY = 0,
-    /// Replies only to queries with intersecting key expressions.
+    /// Replies only to queries with intersecting key expressions.[Default]
     MATCHING_QUERY = 1,
 }
 
-#[cfg(feature = "unstable")]
-impl From<ReplyKeyExpr> for zc_reply_keyexpr_t {
+impl From<ReplyKeyExpr> for z_reply_keyexpr_t {
     fn from(k: ReplyKeyExpr) -> Self {
         match k {
-            ReplyKeyExpr::Any => zc_reply_keyexpr_t::ANY,
-            ReplyKeyExpr::MatchingQuery => zc_reply_keyexpr_t::MATCHING_QUERY,
+            ReplyKeyExpr::Any => z_reply_keyexpr_t::ANY,
+            ReplyKeyExpr::MatchingQuery => z_reply_keyexpr_t::MATCHING_QUERY,
         }
     }
 }
 
-#[cfg(feature = "unstable")]
-impl From<zc_reply_keyexpr_t> for ReplyKeyExpr {
-    fn from(k: zc_reply_keyexpr_t) -> Self {
+impl From<z_reply_keyexpr_t> for ReplyKeyExpr {
+    fn from(k: z_reply_keyexpr_t) -> Self {
         match k {
-            zc_reply_keyexpr_t::ANY => ReplyKeyExpr::Any,
-            zc_reply_keyexpr_t::MATCHING_QUERY => ReplyKeyExpr::MatchingQuery,
+            z_reply_keyexpr_t::ANY => ReplyKeyExpr::Any,
+            z_reply_keyexpr_t::MATCHING_QUERY => ReplyKeyExpr::MatchingQuery,
         }
     }
 }
 
-#[cfg(feature = "unstable")]
-/// @warning This API has been marked as unstable: it works as advertised, but it may be changed in a future release.
-/// @brief Returns the default value of #zc_reply_keyexpr_t.
+/// @brief Returns the default value of #z_reply_keyexpr_t.
 #[no_mangle]
-pub extern "C" fn zc_reply_keyexpr_default() -> zc_reply_keyexpr_t {
+pub extern "C" fn z_reply_keyexpr_default() -> z_reply_keyexpr_t {
     ReplyKeyExpr::default().into()
 }
 
@@ -388,7 +378,7 @@ pub extern "C" fn zc_reply_keyexpr_default() -> zc_reply_keyexpr_t {
 #[repr(C)]
 #[derive(Clone, Copy)]
 pub enum z_query_target_t {
-    /// The nearest complete queryable if any else all matching queryables.
+    /// The nearest complete queryable if any else all matching queryables.[Default]
     BEST_MATCHING = 0,
     /// All matching queryables.
     ALL = 1,
@@ -482,7 +472,7 @@ pub enum z_priority_t {
     INTERACTIVE_LOW = 3,
     /// Highest priority for ``Data`` messages.
     DATA_HIGH = 4,
-    /// Default priority for ``Data`` messages.
+    /// Default priority for ``Data`` messages.[Default]
     DATA = 5,
     /// Lowest priority for ``Data`` messages.
     DATA_LOW = 6,
@@ -530,8 +520,11 @@ pub extern "C" fn z_priority_default() -> z_priority_t {
 pub enum z_congestion_control_t {
     /// Messages are not dropped in case of congestion.
     BLOCK = 0,
-    /// Messages are dropped in case of congestion.
+    /// Messages are dropped in case of congestion.[Default]
     DROP = 1,
+    #[cfg(feature = "unstable")]
+    /// Messages except the first one are dropped in case of congestion.
+    BLOCK_FIRST = 2,
 }
 
 /// Returns the default congestion control value of zenoh push network messages, typically used for put operations.
@@ -546,17 +539,13 @@ pub extern "C" fn z_internal_congestion_control_default_request() -> z_congestio
     CongestionControl::DEFAULT_REQUEST.into()
 }
 
-/// Returns the default congestion control value of zenoh response network messages, typically used for reply operations.
-#[no_mangle]
-pub extern "C" fn z_internal_congestion_control_default_response() -> z_congestion_control_t {
-    CongestionControl::DEFAULT_RESPONSE.into()
-}
-
 impl From<CongestionControl> for z_congestion_control_t {
     fn from(cc: CongestionControl) -> Self {
         match cc {
             CongestionControl::Block => z_congestion_control_t::BLOCK,
             CongestionControl::Drop => z_congestion_control_t::DROP,
+            #[cfg(feature = "unstable")]
+            CongestionControl::BlockFirst => z_congestion_control_t::BLOCK_FIRST,
         }
     }
 }
@@ -566,6 +555,8 @@ impl From<z_congestion_control_t> for CongestionControl {
         match cc {
             z_congestion_control_t::BLOCK => CongestionControl::Block,
             z_congestion_control_t::DROP => CongestionControl::Drop,
+            #[cfg(feature = "unstable")]
+            z_congestion_control_t::BLOCK_FIRST => CongestionControl::BlockFirst,
         }
     }
 }
@@ -589,87 +580,37 @@ pub extern "C" fn z_entity_global_id_zid(this_: &z_entity_global_id_t) -> z_id_t
 pub extern "C" fn z_entity_global_id_eid(this_: &z_entity_global_id_t) -> u32 {
     this_.as_rust_type_ref().eid()
 }
-#[cfg(feature = "unstable")]
-pub use crate::opaque_types::{z_loaned_source_info_t, z_owned_source_info_t};
-#[cfg(feature = "unstable")]
-decl_c_type!(
-    owned(z_owned_source_info_t, SourceInfo),
-    loaned(z_loaned_source_info_t, SourceInfo),
-);
 
 #[cfg(feature = "unstable")]
-impl Gravestone for SourceInfo {
-    fn gravestone() -> Self {
-        SourceInfo::default()
-    }
-    fn is_gravestone(&self) -> bool {
-        self.source_id().is_none() && self.source_sn().is_none()
-    }
-}
+decl_c_type!(copy(z_source_info_t, SourceInfo));
 
 #[cfg(feature = "unstable")]
 /// @warning This API has been marked as unstable: it works as advertised, but it may be changed in a future release.
 /// @brief Creates source info.
+///
+/// @param source_id: Non-null pointer to source entity global id.
+/// @param source_sn: Source sequence number.
 #[no_mangle]
 pub extern "C" fn z_source_info_new(
-    this: &mut MaybeUninit<z_owned_source_info_t>,
     source_id: &z_entity_global_id_t,
     source_sn: u32,
-) -> result::z_result_t {
-    let this = this.as_rust_type_mut_uninit();
-    let source_info = SourceInfo::new(Some(*source_id.as_rust_type_ref()), Some(source_sn));
-    this.write(source_info);
-    result::Z_OK
+) -> z_source_info_t {
+    let source_info = SourceInfo::new(*source_id.as_rust_type_ref(), source_sn);
+    source_info.into_c_type()
 }
 
 #[cfg(feature = "unstable")]
-/// @warning This API has been marked as unstable: it works as advertised, but it may be changed in a future release.
-/// @brief Returns the source_id of the source info.
 #[no_mangle]
-pub extern "C" fn z_source_info_id(this_: &z_loaned_source_info_t) -> z_entity_global_id_t {
-    match this_.as_rust_type_ref().source_id() {
-        Some(source_id) => *source_id,
-        None => EntityGlobalId::default(),
-    }
-    .into_c_type()
+/// @warning This API has been marked as unstable: it works as advertised, but it may be changed in a future release.
+/// @brief Returns the source id of the source info.
+pub extern "C" fn z_source_info_id(this_: &z_source_info_t) -> z_entity_global_id_t {
+    this_.as_rust_type_ref().source_id().into_c_type()
 }
 
 #[cfg(feature = "unstable")]
 /// @warning This API has been marked as unstable: it works as advertised, but it may be changed in a future release.
 /// @brief Returns the source_sn of the source info.
 #[no_mangle]
-pub extern "C" fn z_source_info_sn(this_: &z_loaned_source_info_t) -> u32 {
-    this_.as_rust_type_ref().source_sn().unwrap_or_default()
-}
-
-#[cfg(feature = "unstable")]
-/// @warning This API has been marked as unstable: it works as advertised, but it may be changed in a future release.
-/// @brief Returns ``true`` if source info is valid, ``false`` if it is in gravestone state.
-#[no_mangle]
-pub extern "C" fn z_internal_source_info_check(this_: &z_owned_source_info_t) -> bool {
-    this_.as_rust_type_ref().source_id().is_some() || this_.as_rust_type_ref().source_sn().is_some()
-}
-
-#[cfg(feature = "unstable")]
-/// @warning This API has been marked as unstable: it works as advertised, but it may be changed in a future release.
-/// @brief Borrows source info.
-#[no_mangle]
-pub extern "C" fn z_source_info_loan(this_: &z_owned_source_info_t) -> &z_loaned_source_info_t {
-    this_.as_rust_type_ref().as_loaned_c_type_ref()
-}
-
-#[cfg(feature = "unstable")]
-/// @warning This API has been marked as unstable: it works as advertised, but it may be changed in a future release.
-/// @brief Frees the memory and invalidates the source info, resetting it to a gravestone state.
-#[no_mangle]
-pub extern "C" fn z_source_info_drop(this_: &mut z_moved_source_info_t) {
-    let _ = this_.take_rust_type();
-}
-
-#[cfg(feature = "unstable")]
-/// @warning This API has been marked as unstable: it works as advertised, but it may be changed in a future release.
-/// @brief Constructs source info in its gravestone state.
-#[no_mangle]
-pub extern "C" fn z_internal_source_info_null(this_: &mut MaybeUninit<z_owned_source_info_t>) {
-    this_.as_rust_type_mut_uninit().write(SourceInfo::default());
+pub extern "C" fn z_source_info_sn(this_: &z_source_info_t) -> u32 {
+    this_.as_rust_type_ref().source_sn()
 }

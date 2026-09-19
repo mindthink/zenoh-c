@@ -98,12 +98,12 @@ pub extern "C" fn z_closure_zid_call(closure: &z_loaned_closure_zid_t, z_id: &z_
     match closure._call {
         Some(call) => call(z_id, closure._context),
         None => {
-            tracing::error!("Attempted to call an uninitialized closure!");
+            crate::report_error!("Attempted to call an uninitialized closure!");
         }
     }
 }
 
-/// @brief Drops the closure, resetting it to its gravestone state. Droping an uninitialized (null) closure is a no-op.
+/// @brief Drops the closure, resetting it to its gravestone state. Dropping an uninitialized (null) closure is a no-op.
 #[no_mangle]
 pub extern "C" fn z_closure_zid_drop(closure_: &mut z_moved_closure_zid_t) {
     let _ = closure_.take_rust_type();

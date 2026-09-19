@@ -57,7 +57,7 @@ jobs:
           github-token: ${{ secrets.BOT_TOKEN_WORKFLOW }}
 
       - name: Checkout this repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
         with:
           ref: ${{ steps.create-release-branch.outputs.branch }}
           token: ${{ secrets.BOT_TOKEN_WORKFLOW }}
@@ -94,7 +94,7 @@ jobs:
     needs: tag
     steps:
       - name: Checkout this repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
         with:
           ref: ${{ needs.tag.outputs.branch }}
           token: ${{ secrets.BOT_TOKEN_WORKFLOW }}
@@ -106,6 +106,7 @@ jobs:
       - name: Install build deps
         if: ${{ matrix.build.target == 'x86_64-unknown-linux-musl'}}
         run: |
+          sudo apt-get update
           sudo apt-get install -y musl-tools
           wget https://github.com/ZettaScaleLabs/muslcc/raw/refs/heads/main/x86_64-linux-musl-cross.tgz?download= -O x86_64-linux-musl-cross.tgz
           tar xvfz x86_64-linux-musl-cross.tgz
@@ -113,11 +114,15 @@ jobs:
 
       - name: Install build deps
         if: ${{ matrix.build.target == 'arm-unknown-linux-gnueabi'}}
-        run: sudo apt-get install -y gcc-arm-linux-gnueabi g++-arm-linux-gnueabi
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y gcc-arm-linux-gnueabi g++-arm-linux-gnueabi
 
       - name: Install build deps
         if: ${{ matrix.build.target == 'arm-unknown-linux-gnueabihf'}}
-        run: sudo apt-get install -y gcc-arm-linux-gnueabihf g++-arm-linux-gnueabihf
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y gcc-arm-linux-gnueabihf g++-arm-linux-gnueabihf
 
       - name: Install build deps
         if: ${{ matrix.build.target == 'armv7-unknown-linux-gnueabihf'}}
@@ -128,7 +133,9 @@ jobs:
 
       - name: Install build deps
         if: ${{ matrix.build.target == 'aarch64-unknown-linux-gnu'}}
-        run: sudo apt-get install -y gcc-aarch64-linux-gnu g++-aarch64-linux-gnu
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y gcc-aarch64-linux-gnu g++-aarch64-linux-gnu
 
       - name: Install build deps
         if: ${{ matrix.build.target == 'aarch64-unknown-linux-musl'}}
@@ -140,6 +147,7 @@ jobs:
       - name: Install build deps
         if: ${{ matrix.build.target == 'x86_64-pc-windows-gnu'}}
         run: |
+          sudo apt-get update
           sudo apt-get install -y mingw-w64
 
       - name: Compute package name
@@ -186,7 +194,7 @@ jobs:
           zip -9 -j libzenohc-${{ inputs.version || '0.0.0' }}-${{ matrix.build.target }}-rpm.zip ./build/packages/*.rpm
 
       - name: Upload standalone archive
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a  # v7.0.1
         with:
           # Publish the artifact with zenoh-c (repo name) so it can be used by homebrew action
           name: zenoh-c-${{ inputs.version || '0.0.0' }}-${{ matrix.build.target }}-standalone.zip
@@ -194,14 +202,14 @@ jobs:
 
       - name: Upload DEB archive
         if: ${{ contains(matrix.build.target, 'linux') }}
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a  # v7.0.1
         with:
           name: libzenohc-${{ inputs.version || '0.0.0' }}-${{ matrix.build.target }}-debian.zip
           path: libzenohc-${{ inputs.version || '0.0.0' }}-${{ matrix.build.target }}-debian.zip
 
       - name: Upload RPM archive
         if: ${{ contains(matrix.build.target, 'linux') }}
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a  # v7.0.1
         with:
           name: libzenohc-${{ inputs.version || '0.0.0' }}-${{ matrix.build.target }}-rpm.zip
           path: libzenohc-${{ inputs.version || '0.0.0' }}-${{ matrix.build.target }}-rpm.zip

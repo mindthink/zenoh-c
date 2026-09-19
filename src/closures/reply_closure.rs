@@ -101,11 +101,11 @@ pub extern "C" fn z_closure_reply_call(
     match closure._call {
         Some(call) => call(reply, closure._context),
         None => {
-            tracing::error!("Attempted to call an uninitialized closure!");
+            crate::report_error!("Attempted to call an uninitialized closure!");
         }
     }
 }
-/// Drops the closure, resetting it to its gravestone state. Droping an uninitialized closure is a no-op.
+/// Drops the closure, resetting it to its gravestone state. Dropping an uninitialized closure is a no-op.
 #[no_mangle]
 pub extern "C" fn z_closure_reply_drop(closure_: &mut z_moved_closure_reply_t) {
     let _ = closure_.take_rust_type();

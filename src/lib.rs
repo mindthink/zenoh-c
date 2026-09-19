@@ -45,9 +45,7 @@ mod info;
 pub use crate::info::*;
 mod get;
 pub use crate::get::*;
-#[cfg(feature = "unstable")]
 mod querier;
-#[cfg(feature = "unstable")]
 pub use crate::querier::*;
 mod queryable;
 pub use crate::queryable::*;
@@ -67,9 +65,7 @@ pub mod platform;
 pub use platform::*;
 mod liveliness;
 pub use liveliness::*;
-#[cfg(feature = "unstable")]
 mod matching;
-#[cfg(feature = "unstable")]
 pub use matching::*;
 #[cfg(feature = "unstable")]
 mod publication_cache;
@@ -94,6 +90,9 @@ pub mod context;
 pub mod shm;
 
 mod serialization;
+
+#[cfg(feature = "unstable")]
+mod cancellation_token;
 
 // This is the entry point for zenoh-c
 // When compiling normal Rust executable, it includes rusty entry point `lang_start` that internally
@@ -177,27 +176,7 @@ pub extern "C" fn zc_init_log_with_callback(
 #[test]
 #[cfg(not(feature = "default"))]
 fn test_no_default_features() {
-    assert_eq!(
-        zenoh::FEATURES,
-        concat!(
-            // " zenoh/auth_pubkey",
-            // " zenoh/auth_usrpwd",
-            // " zenoh/complete_n",
-            //" zenoh/shared-memory",
-            // " zenoh/stats",
-            // " zenoh/transport_multilink",
-            // " zenoh/transport_quic",
-            // " zenoh/transport_serial",
-            // " zenoh/transport_unixpipe",
-            // " zenoh/transport_tcp",
-            // " zenoh/transport_tls",
-            // " zenoh/transport_udp",
-            // " zenoh/transport_unixsock-stream",
-            // " zenoh/transport_ws",
-            // " zenoh/unstable",
-            // " zenoh/default",
-        )
-    );
+    assert_eq!(zenoh::FEATURES, "");
 }
 
 trait CopyableToCArray {
@@ -230,4 +209,12 @@ impl CopyableToCArray for &str {
 #[no_mangle]
 pub extern "C" fn zc_stop_z_runtime() {
     let _z = zenoh_runtime::ZRuntimePoolGuard;
+}
+
+#[allow(clippy::missing_safety_doc)]
+pub(crate) unsafe fn strlen_or_zero(ptr: *const libc::c_char) -> usize {
+    match ptr.is_null() {
+        true => 0,
+        false => libc::strlen(ptr),
+    }
 }

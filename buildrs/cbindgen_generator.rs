@@ -32,7 +32,8 @@ static RUST_TO_C_FEATURES: phf::Map<&'static str, &'static str> = phf_map! {
     "transport_udp" =>  "Z_FEATURE_TRANSPORT_UDP",
     "transport_unixsock-stream" =>  "Z_FEATURE_TRANSPORT_UNIXSOCK_STREAM",
     "transport_ws" =>  "Z_FEATURE_TRANSPORT_WS",
-    "transport_vsock" => "Z_FEATURE_VSOCK"
+    "transport_vsock" => "Z_FEATURE_VSOCK",
+    "transport_quic_datagram"  => "Z_FEATURE_TRANSPORT_QUIC_DATAGRAM",
 };
 
 pub fn generate_c_headers() {
@@ -40,8 +41,9 @@ pub fn generate_c_headers() {
     let config = cbindgen::Config::from_root_or_default(crate_dir.clone());
     cbindgen::Builder::new()
         .with_config(config)
+        .with_only_target_dependencies(true)
         .with_crate(crate_dir)
-        .with_src(get_out_rs_path().join("./opaque_types.rs"))
+        .with_src(get_out_rs_path().join("opaque_types.rs"))
         .generate()
         .expect("Unable to generate bindings")
         .write_to_file(BUGGY_GENERATION_PATH);
@@ -63,6 +65,69 @@ pub fn generate_c_headers() {
         &fs_extra::dir::CopyOptions::default().overwrite(true),
     )
     .expect("include should be copied to CARGO_TARGET_DIR");
+}
+
+fn add_deprecated_z_locality_enum_values(bindings: String) -> String {
+    let re = Regex::new(r"(\s*)Z_LOCALITY_(\w+)(\s*)=(\s*)(\d)(,*)").unwrap();
+
+    let bindings = re
+        .replace_all(
+            &bindings,
+            "${1}Z_LOCALITY_$2$3=$4$5,".to_string()
+                + "${1}/**"
+                + "${1}* @warning This API is deprecated. Please use `Z_LOCALITY_$2`."
+                + "${1}*/"
+                + "${1}ZC_LOCALITY_$2$3=$4$5$6",
+        )
+        .to_string();
+
+    let re = Regex::new(r"(\s*)}(\s*)z_locality_t;").unwrap();
+    re.replace_all(
+        &bindings,
+        "${1}}${2}z_locality_t;".to_string()
+            + "${1}/**"
+            + "${1}* @warning This API is deprecated. Please use `z_locality_t`."
+            + "${1}*/"
+            + "${1}typedef z_locality_t zc_locality_t;",
+    )
+    .to_string()
+}
+
+fn add_enum_defaults(bindings: String) -> String {
+    let re = Regex::new(r"typedef enum ([\w_]+)_t \{([^\[^\}]*?)\[Default\](\s*)\*\/(\s*)([\w_]*)(\s*)=(\s*)(\d)(,*)").unwrap();
+
+    let mut new = String::with_capacity(bindings.len());
+    let mut last_match = 0;
+    for caps in re.captures_iter(&bindings) {
+        let m = caps.get(0).unwrap();
+        new.push_str(&bindings[last_match..m.start()]);
+        let prefix = caps.get(1).unwrap().as_str().to_ascii_uppercase();
+        new.push_str("typedef enum ");
+        new.push_str(caps.get(1).unwrap().as_str());
+        new.push_str("_t {");
+        new.push_str(caps.get(2).unwrap().as_str());
+        new.push_str(caps.get(3).unwrap().as_str());
+        new.push_str("*/");
+        new.push_str(caps.get(4).unwrap().as_str());
+        new.push_str(caps.get(5).unwrap().as_str());
+        new.push_str(caps.get(6).unwrap().as_str());
+        new.push('=');
+        new.push_str(caps.get(7).unwrap().as_str());
+        new.push_str(caps.get(8).unwrap().as_str());
+        new.push_str(", ");
+
+        new.push_str(caps.get(4).unwrap().as_str());
+        new.push_str(&(prefix + "_DEFAULT"));
+        new.push_str(caps.get(6).unwrap().as_str());
+        new.push('=');
+        new.push_str(caps.get(7).unwrap().as_str());
+        new.push_str(caps.get(5).unwrap().as_str());
+        new.push_str(caps.get(9).unwrap().as_str());
+        last_match = m.end();
+    }
+    new.push_str(&bindings[last_match..]);
+
+    new
 }
 
 fn fix_cbindgen(input: &str, output: &str) {
@@ -327,7 +392,10 @@ fn configure() {
     let version = version.trim();
     let version_parts: Vec<&str> = version.split('.').collect();
     if version_parts.len() < 3 {
-        panic!("Invalid version format: \"{}\" in file version.txt. Major.Minor.Patch parts are required", version);
+        panic!(
+            "Invalid version format: \"{}\" in file version.txt. Major.Minor.Patch parts are required",
+            version
+        );
     }
     let major = version_parts[0];
     let minor = version_parts[1];
@@ -394,6 +462,9 @@ fn text_replace(files: impl Iterator<Item = impl AsRef<Path>>) {
         // So have to do it here.
         let buf = buf.replace("extern const", "ZENOHC_API extern const");
 
+        let buf = add_deprecated_z_locality_enum_values(buf);
+        let buf = add_enum_defaults(buf);
+
         // Overwrite content
         let mut file = std::fs::File::options()
             .read(false)
@@ -454,7 +525,7 @@ fn evaluate_c_defines_line(line: &str) -> bool {
     s = s.replace("#if", "");
     match evalexpr::eval(&s) {
         Ok(v) => v == evalexpr::Value::from(false),
-        Err(_) => panic!("Failed to evaluate {}", &s),
+        Err(_) => panic!("Failed to evaluate {}", s),
     }
 }
 
@@ -733,7 +804,7 @@ fn find_clone_functions(path_in: &str) -> Vec<FunctionSignature> {
             "z_".to_string() + func_name + "_clone",
             vec![
                 FuncArg::new(&(dst_type.to_string() + "*"), dst_name),
-                FuncArg::new(&(src_type.to_string() + "*"), src_name),
+                FuncArg::new(&("const ".to_string() + src_type + "*"), src_name),
             ],
         );
         res.push(f);
@@ -887,7 +958,7 @@ fn generate_generic_closure_c(macro_func: &[FunctionSignature]) -> String {
             .clone()
             .typename
             .typename
-            .replace(" (*call)", &format!("(*{})", &callback_typename));
+            .replace(" (*call)", &format!("(*{})", callback_typename));
 
         out += &format!("typedef {};\n", prototype);
     }
@@ -1059,7 +1130,7 @@ fn generate_generic_closure_cpp(macro_func: &[FunctionSignature]) -> String {
         let prototype = processed_f.args[1]
             .typename
             .typename
-            .replace(&format!(" (*{})", &processed_f.args[1].name), "");
+            .replace(&format!(" (*{})", processed_f.args[1].name), "");
         let callback_typename = f.func_name.clone() + "_callback_t";
         out += &format!(
             "extern \"C\" using {} = {};\n",

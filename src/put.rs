@@ -20,12 +20,13 @@ use zenoh::{
 };
 
 #[cfg(feature = "unstable")]
-use crate::z_moved_source_info_t;
+use crate::z_source_info_t;
 use crate::{
     commons::*,
     result,
     transmute::{IntoRustType, RustTypeRef, TakeRustType},
-    z_loaned_keyexpr_t, z_loaned_session_t, z_moved_bytes_t, z_moved_encoding_t, z_timestamp_t,
+    z_loaned_keyexpr_t, z_loaned_session_t, z_locality_default, z_locality_t, z_moved_bytes_t,
+    z_moved_encoding_t, z_timestamp_t,
 };
 
 /// Options passed to the `z_put()` function.
@@ -47,16 +48,13 @@ pub struct z_put_options_t {
     ///
     /// The put operation reliability.
     reliability: z_reliability_t,
-    #[cfg(feature = "unstable")]
-    /// @warning This API has been marked as unstable: it works as advertised, but it may be changed in a future release.
-    ///
     /// The allowed destination of this message.
-    pub allowed_destination: zc_locality_t,
+    pub allowed_destination: z_locality_t,
     #[cfg(feature = "unstable")]
     /// @warning This API has been marked as unstable: it works as advertised, but it may be changed in a future release.
     ///
     /// The source info for the message.
-    pub source_info: Option<&'static mut z_moved_source_info_t>,
+    pub source_info: Option<&'static z_source_info_t>,
     /// The attachment to this message.
     pub attachment: Option<&'static mut z_moved_bytes_t>,
 }
@@ -73,8 +71,7 @@ pub extern "C" fn z_put_options_default(this_: &mut MaybeUninit<z_put_options_t>
         timestamp: None,
         #[cfg(feature = "unstable")]
         reliability: z_reliability_default(),
-        #[cfg(feature = "unstable")]
-        allowed_destination: zc_locality_default(),
+        allowed_destination: z_locality_default(),
         #[cfg(feature = "unstable")]
         source_info: None,
         attachment: None,
@@ -114,14 +111,13 @@ pub extern "C" fn z_put(
         put = put
             .priority(options.priority.into())
             .congestion_control(options.congestion_control.into())
-            .express(options.is_express);
+            .express(options.is_express)
+            .allowed_destination(options.allowed_destination.into());
         #[cfg(feature = "unstable")]
         {
-            put = put
-                .reliability(options.reliability.into())
-                .allowed_destination(options.allowed_destination.into());
-            if let Some(source_info) = options.source_info.take() {
-                put = put.source_info(source_info.take_rust_type());
+            put = put.reliability(options.reliability.into());
+            if let Some(source_info) = options.source_info {
+                put = put.source_info(source_info.as_rust_type_ref().clone());
             };
         }
     }
@@ -129,7 +125,7 @@ pub extern "C" fn z_put(
         Ok(_) => result::Z_OK,
         Err(e) if e.downcast_ref::<SessionClosedError>().is_some() => result::Z_ESESSION_CLOSED,
         Err(e) => {
-            tracing::error!("{}", e);
+            crate::report_error!("{}", e);
             result::Z_EGENERIC
         }
     }
@@ -152,11 +148,8 @@ pub struct z_delete_options_t {
     ///
     /// The delete operation reliability.
     pub reliability: z_reliability_t,
-    #[cfg(feature = "unstable")]
-    /// @warning This API has been marked as unstable: it works as advertised, but it may be changed in a future release.
-    ///
     /// The allowed destination of this message.
-    pub allowed_destination: zc_locality_t,
+    pub allowed_destination: z_locality_t,
 }
 
 /// Constructs the default value for `z_delete_options_t`.
@@ -170,8 +163,7 @@ pub unsafe extern "C" fn z_delete_options_default(this_: &mut MaybeUninit<z_dele
         timestamp: None,
         #[cfg(feature = "unstable")]
         reliability: z_reliability_default(),
-        #[cfg(feature = "unstable")]
-        allowed_destination: zc_locality_default(),
+        allowed_destination: z_locality_default(),
     });
 }
 
@@ -199,19 +191,18 @@ pub extern "C" fn z_delete(
         del = del
             .congestion_control(options.congestion_control.into())
             .priority(options.priority.into())
-            .express(options.is_express);
+            .express(options.is_express)
+            .allowed_destination(options.allowed_destination.into());
 
         #[cfg(feature = "unstable")]
         {
-            del = del
-                .reliability(options.reliability.into())
-                .allowed_destination(options.allowed_destination.into());
+            del = del.reliability(options.reliability.into());
         }
     }
 
     match del.wait() {
         Err(e) => {
-            tracing::error!("{}", e);
+            crate::report_error!("{}", e);
             result::Z_EGENERIC
         }
         Ok(()) => result::Z_OK,

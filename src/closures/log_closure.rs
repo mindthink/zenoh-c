@@ -157,11 +157,11 @@ pub extern "C" fn zc_closure_log_call(
     match closure._call {
         Some(call) => call(severity, msg, closure._context),
         None => {
-            tracing::error!("Attempted to call an uninitialized closure!");
+            crate::report_error!("Attempted to call an uninitialized closure!");
         }
     }
 }
-/// Drops the closure. Droping an uninitialized closure is a no-op.
+/// Drops the closure. Dropping an uninitialized closure is a no-op.
 #[no_mangle]
 pub extern "C" fn zc_closure_log_drop(closure_: &mut zc_moved_closure_log_t) {
     let _ = closure_.take_rust_type();

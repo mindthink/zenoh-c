@@ -12,12 +12,12 @@
 //   ZettaScale Zenoh Team, <zenoh@zettascale.tech>
 //
 
-use std::mem::MaybeUninit;
+use std::{mem::MaybeUninit, sync::Arc};
 
 use libc::c_void;
 use zenoh::{
     shm::{
-        BlockOn, Deallocate, Defragment, GarbageCollect, JustAlloc, ShmProvider, ShmProviderBuilder,
+        BlockOn, ConstUsize, Deallocate, Defragment, JustAlloc, ShmProvider, ShmProviderBuilder,
     },
     Wait,
 };
@@ -25,7 +25,7 @@ use zenoh::{
 use super::{
     chunk::z_allocated_chunk_t,
     shm_provider_backend::{zc_shm_provider_backend_callbacks_t, DynamicShmProviderBackend},
-    shm_provider_impl::{alloc, alloc_async, available, defragment, garbage_collect, map},
+    shm_provider_impl::{alloc, alloc_async, available, defragment, map},
     types::z_alloc_alignment_t,
 };
 use crate::{
@@ -33,7 +33,10 @@ use crate::{
     result::{z_result_t, Z_EINVAL, Z_OK},
     shm::{
         protocol_implementations::posix::posix_shm_provider::PosixShmProvider,
-        provider::types::z_buf_layout_alloc_result_t,
+        provider::{
+            shm_provider_impl::{garbage_collect_unsafe, UnsafeGarbageCollect},
+            types::z_buf_layout_alloc_result_t,
+        },
     },
     transmute::{LoanedCTypeRef, RustTypeRef, RustTypeRefUninit, TakeRustType},
     z_loaned_shm_provider_t, z_moved_shm_provider_t, z_owned_shm_mut_t, z_owned_shm_provider_t,
@@ -43,8 +46,11 @@ pub type DynamicShmProvider = ShmProvider<DynamicShmProviderBackend<Context>>;
 
 pub type DynamicShmProviderThreadsafe = ShmProvider<DynamicShmProviderBackend<ThreadsafeContext>>;
 
+pub type SharedPosixShmProvider = Arc<PosixShmProvider>;
+
 pub enum CSHMProvider {
     Posix(PosixShmProvider),
+    SharedPosix(SharedPosixShmProvider),
     Dynamic(DynamicShmProvider),
     DynamicThreadsafe(DynamicShmProviderThreadsafe),
 }
@@ -68,7 +74,7 @@ pub extern "C" fn z_shm_provider_default_new(
             Z_OK
         }
         Err(e) => {
-            tracing::error!("{:?}", e);
+            crate::report_error!("{:?}", e);
             Z_EINVAL
         }
     }
@@ -157,7 +163,7 @@ pub extern "C" fn z_shm_provider_alloc_gc(
     provider: &z_loaned_shm_provider_t,
     size: usize,
 ) {
-    alloc::<GarbageCollect>(out_result, provider, size, z_alloc_alignment_t { pow: 0 })
+    alloc::<UnsafeGarbageCollect>(out_result, provider, size, z_alloc_alignment_t { pow: 0 })
 }
 
 /// @warning This API has been marked as unstable: it works as advertised, but it may be changed in a future release.
@@ -168,7 +174,12 @@ pub extern "C" fn z_shm_provider_alloc_gc_defrag(
     provider: &z_loaned_shm_provider_t,
     size: usize,
 ) {
-    alloc::<Defragment<GarbageCollect>>(out_result, provider, size, z_alloc_alignment_t { pow: 0 })
+    alloc::<Defragment<UnsafeGarbageCollect>>(
+        out_result,
+        provider,
+        size,
+        z_alloc_alignment_t { pow: 0 },
+    )
 }
 
 /// @warning This API has been marked as unstable: it works as advertised, but it may be changed in a future release.
@@ -179,7 +190,7 @@ pub extern "C" fn z_shm_provider_alloc_gc_defrag_dealloc(
     provider: &z_loaned_shm_provider_t,
     size: usize,
 ) {
-    alloc::<Deallocate<100, Defragment<GarbageCollect>>>(
+    alloc::<Deallocate<ConstUsize<100>, Defragment<UnsafeGarbageCollect>>>(
         out_result,
         provider,
         size,
@@ -195,7 +206,7 @@ pub extern "C" fn z_shm_provider_alloc_gc_defrag_blocking(
     provider: &z_loaned_shm_provider_t,
     size: usize,
 ) {
-    alloc::<BlockOn<Defragment<GarbageCollect>>>(
+    alloc::<BlockOn<Defragment<UnsafeGarbageCollect>>>(
         out_result,
         provider,
         size,
@@ -217,7 +228,7 @@ pub extern "C" fn z_shm_provider_alloc_gc_defrag_async(
         &mut MaybeUninit<z_buf_layout_alloc_result_t>,
     ),
 ) -> z_result_t {
-    alloc_async::<BlockOn<Defragment<GarbageCollect>>>(
+    alloc_async::<BlockOn<Defragment<UnsafeGarbageCollect>>>(
         out_result,
         provider,
         size,
@@ -248,7 +259,7 @@ pub extern "C" fn z_shm_provider_alloc_gc_aligned(
     size: usize,
     alignment: z_alloc_alignment_t,
 ) {
-    alloc::<GarbageCollect>(out_result, provider, size, alignment)
+    alloc::<UnsafeGarbageCollect>(out_result, provider, size, alignment)
 }
 
 /// @warning This API has been marked as unstable: it works as advertised, but it may be changed in a future release.
@@ -260,7 +271,7 @@ pub extern "C" fn z_shm_provider_alloc_gc_defrag_aligned(
     size: usize,
     alignment: z_alloc_alignment_t,
 ) {
-    alloc::<Defragment<GarbageCollect>>(out_result, provider, size, alignment)
+    alloc::<Defragment<UnsafeGarbageCollect>>(out_result, provider, size, alignment)
 }
 
 /// @warning This API has been marked as unstable: it works as advertised, but it may be changed in a future release.
@@ -272,7 +283,9 @@ pub extern "C" fn z_shm_provider_alloc_gc_defrag_dealloc_aligned(
     size: usize,
     alignment: z_alloc_alignment_t,
 ) {
-    alloc::<Deallocate<100, Defragment<GarbageCollect>>>(out_result, provider, size, alignment)
+    alloc::<Deallocate<ConstUsize<100>, Defragment<UnsafeGarbageCollect>>>(
+        out_result, provider, size, alignment,
+    )
 }
 
 /// @warning This API has been marked as unstable: it works as advertised, but it may be changed in a future release.
@@ -284,7 +297,7 @@ pub extern "C" fn z_shm_provider_alloc_gc_defrag_blocking_aligned(
     size: usize,
     alignment: z_alloc_alignment_t,
 ) {
-    alloc::<BlockOn<Defragment<GarbageCollect>>>(out_result, provider, size, alignment)
+    alloc::<BlockOn<Defragment<UnsafeGarbageCollect>>>(out_result, provider, size, alignment)
 }
 
 /// @warning This API has been marked as unstable: it works as advertised, but it may be changed in a future release.
@@ -302,7 +315,7 @@ pub extern "C" fn z_shm_provider_alloc_gc_defrag_aligned_async(
         &mut MaybeUninit<z_buf_layout_alloc_result_t>,
     ),
 ) -> z_result_t {
-    alloc_async::<BlockOn<Defragment<GarbageCollect>>>(
+    alloc_async::<BlockOn<Defragment<UnsafeGarbageCollect>>>(
         out_result,
         provider,
         size,
@@ -324,7 +337,7 @@ pub extern "C" fn z_shm_provider_defragment(provider: &z_loaned_shm_provider_t) 
 /// @brief Perform memory garbage collection and reclaim all dereferenced SHM buffers.
 #[no_mangle]
 pub extern "C" fn z_shm_provider_garbage_collect(provider: &z_loaned_shm_provider_t) -> usize {
-    garbage_collect(provider)
+    unsafe { garbage_collect_unsafe(provider) }
 }
 
 /// @warning This API has been marked as unstable: it works as advertised, but it may be changed in a future release.

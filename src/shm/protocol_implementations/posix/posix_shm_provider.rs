@@ -15,7 +15,9 @@
 use std::mem::MaybeUninit;
 
 use zenoh::{
-    shm::{AllocLayout, PosixShmProviderBackend, ShmProvider, ShmProviderBuilder},
+    shm::{
+        MemoryLayout, PosixShmProviderBackend, PrecomputedLayout, ShmProvider, ShmProviderBuilder,
+    },
     Wait,
 };
 
@@ -28,7 +30,7 @@ use crate::{
 
 pub type PosixShmProvider = ShmProvider<PosixShmProviderBackend>;
 
-pub type PosixAllocLayout = AllocLayout<'static, PosixShmProviderBackend>;
+pub type PosixPrecomputedLayout = PrecomputedLayout<'static, PosixShmProviderBackend, MemoryLayout>;
 
 /// @warning This API has been marked as unstable: it works as advertised, but it may be changed in a future release.
 /// @brief Creates a new POSIX SHM Provider.
@@ -38,7 +40,7 @@ pub extern "C" fn z_posix_shm_provider_new(
     size: usize,
 ) -> z_result_t {
     let this = this.as_rust_type_mut_uninit();
-    match PosixShmProviderBackend::builder().with_size(size).wait() {
+    match PosixShmProviderBackend::builder(size).wait() {
         Ok(backend) => {
             let provider = ShmProviderBuilder::backend(backend).wait();
             this.write(Some(CSHMProvider::Posix(provider)));
@@ -46,7 +48,7 @@ pub extern "C" fn z_posix_shm_provider_new(
         }
         Err(e) => {
             this.write(None);
-            tracing::error!("{}", e);
+            crate::report_error!("{}", e);
             Z_EINVAL
         }
     }
@@ -60,10 +62,7 @@ pub extern "C" fn z_posix_shm_provider_with_layout_new(
     layout: &z_loaned_memory_layout_t,
 ) -> z_result_t {
     let this = this.as_rust_type_mut_uninit();
-    match PosixShmProviderBackend::builder()
-        .with_layout(layout.as_rust_type_ref())
-        .wait()
-    {
+    match PosixShmProviderBackend::builder(layout.as_rust_type_ref()).wait() {
         Ok(backend) => {
             let provider = ShmProviderBuilder::backend(backend).wait();
             this.write(Some(CSHMProvider::Posix(provider)));
@@ -71,7 +70,7 @@ pub extern "C" fn z_posix_shm_provider_with_layout_new(
         }
         Err(e) => {
             this.write(None);
-            tracing::error!("{}", e);
+            crate::report_error!("{}", e);
             Z_EINVAL
         }
     }

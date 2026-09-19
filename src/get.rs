@@ -13,7 +13,6 @@
 //
 
 use std::{
-    ffi::CStr,
     mem::MaybeUninit,
     ptr::{null, null_mut},
 };
@@ -28,17 +27,18 @@ use zenoh::{
 
 pub use crate::opaque_types::{z_loaned_reply_err_t, z_moved_reply_err_t, z_owned_reply_err_t};
 use crate::{
-    result,
+    result::{self, Z_EINVAL},
+    strlen_or_zero,
     transmute::{Gravestone, LoanedCTypeRef, RustTypeRef, RustTypeRefUninit, TakeRustType},
     z_closure_reply_call, z_closure_reply_loan, z_congestion_control_t, z_consolidation_mode_t,
     z_loaned_bytes_t, z_loaned_encoding_t, z_loaned_keyexpr_t, z_loaned_sample_t,
-    z_loaned_session_t, z_moved_bytes_t, z_moved_closure_reply_t, z_moved_encoding_t, z_priority_t,
-    z_query_target_t,
+    z_loaned_session_t, z_locality_default, z_locality_t, z_moved_bytes_t, z_moved_closure_reply_t,
+    z_moved_encoding_t, z_priority_t, z_query_target_t, z_reply_keyexpr_default, z_reply_keyexpr_t,
+    CStringView,
 };
 #[cfg(feature = "unstable")]
 use crate::{
-    transmute::IntoCType, z_id_t, z_moved_source_info_t, zc_locality_default, zc_locality_t,
-    zc_reply_keyexpr_default, zc_reply_keyexpr_t,
+    transmute::IntoCType, z_entity_global_id_t, z_moved_cancellation_token_t, z_source_info_t,
 };
 decl_c_type!(
     owned(z_owned_reply_err_t, ReplyError),
@@ -177,13 +177,13 @@ pub unsafe extern "C" fn z_reply_err_mut(
 
 #[cfg(feature = "unstable")]
 /// @warning This API has been marked as unstable: it works as advertised, but it may be changed in a future release.
-/// @brief Gets the id of the zenoh instance that answered this Reply.
+/// @brief Gets the global id of the zenoh entity that answered this Reply.
 /// @return `true` if id is present.
 #[no_mangle]
 #[allow(clippy::missing_safety_doc)]
 pub unsafe extern "C" fn z_reply_replier_id(
     this: &z_loaned_reply_t,
-    out_id: &mut MaybeUninit<z_id_t>,
+    out_id: &mut MaybeUninit<z_entity_global_id_t>,
 ) -> bool {
     match this.as_rust_type_ref().replier_id() {
         Some(val) => {
@@ -221,27 +221,44 @@ pub struct z_get_options_t {
     pub congestion_control: z_congestion_control_t,
     /// If set to ``true``, this message will not be batched. This usually has a positive impact on latency but negative impact on throughput.
     pub is_express: bool,
-    #[cfg(feature = "unstable")]
-    /// @warning This API has been marked as unstable: it works as advertised, but it may be changed in a future release.
-    ///
     /// The allowed destination for the query.
-    pub allowed_destination: zc_locality_t,
-    #[cfg(feature = "unstable")]
-    /// @warning This API has been marked as unstable: it works as advertised, but it may be changed in a future release.
-    ///
+    pub allowed_destination: z_locality_t,
     /// The accepted replies for the query.
-    pub accept_replies: zc_reply_keyexpr_t,
+    pub accept_replies: z_reply_keyexpr_t,
     /// The priority of the query.
     pub priority: z_priority_t,
     #[cfg(feature = "unstable")]
     /// @warning This API has been marked as unstable: it works as advertised, but it may be changed in a future release.
     ///
     /// The source info for the query.
-    pub source_info: Option<&'static mut z_moved_source_info_t>,
+    pub source_info: Option<&'static z_source_info_t>,
     /// An optional attachment to attach to the query.
     pub attachment: Option<&'static mut z_moved_bytes_t>,
     /// The timeout for the query in milliseconds. 0 means default query timeout from zenoh configuration.
     pub timeout_ms: u64,
+    #[cfg(feature = "unstable")]
+    /// @warning This API has been marked as unstable: it works as advertised, but it may be changed in a future release.
+    ///
+    /// Cancellation token to interrupt the query.
+    pub cancellation_token: Option<&'static mut z_moved_cancellation_token_t>,
+}
+
+impl z_get_options_t {
+    fn clear(&mut self) {
+        if let Some(p) = self.payload.take() {
+            p.take_rust_type();
+        }
+        if let Some(e) = self.encoding.take() {
+            e.take_rust_type();
+        }
+        if let Some(a) = self.attachment.take() {
+            a.take_rust_type();
+        }
+        #[cfg(feature = "unstable")]
+        if let Some(ct) = self.cancellation_token.take() {
+            ct.take_rust_type();
+        }
+    }
 }
 
 /// Constructs default `z_get_options_t`
@@ -251,10 +268,8 @@ pub extern "C" fn z_get_options_default(this_: &mut MaybeUninit<z_get_options_t>
         target: QueryTarget::default().into(),
         consolidation: QueryConsolidation::default().into(),
         congestion_control: CongestionControl::DEFAULT_REQUEST.into(),
-        #[cfg(feature = "unstable")]
-        allowed_destination: zc_locality_default(),
-        #[cfg(feature = "unstable")]
-        accept_replies: zc_reply_keyexpr_default(),
+        allowed_destination: z_locality_default(),
+        accept_replies: z_reply_keyexpr_default(),
         priority: Priority::default().into(),
         is_express: false,
         timeout_ms: 0,
@@ -263,6 +278,8 @@ pub extern "C" fn z_get_options_default(this_: &mut MaybeUninit<z_get_options_t>
         #[cfg(feature = "unstable")]
         source_info: None,
         attachment: None,
+        #[cfg(feature = "unstable")]
+        cancellation_token: None,
     });
 }
 
@@ -271,7 +288,7 @@ pub extern "C" fn z_get_options_default(this_: &mut MaybeUninit<z_get_options_t>
 ///
 /// @param session: The zenoh session.
 /// @param key_expr: The key expression matching resources to query.
-/// @param parameters: The query's parameters, similar to a url's query segment.
+/// @param parameters: The query's parameters null-terminated string, similar to a url's query segment.
 /// @param callback: The callback function that will be called on reception of replies for this query. It will be automatically dropped once all replies are processed.
 /// @param options: Additional options for the get. All owned fields will be consumed.
 ///
@@ -285,12 +302,59 @@ pub unsafe extern "C" fn z_get(
     callback: &mut z_moved_closure_reply_t,
     options: Option<&mut z_get_options_t>,
 ) -> result::z_result_t {
+    z_get_with_parameters_substr(
+        session,
+        key_expr,
+        parameters,
+        strlen_or_zero(parameters),
+        callback,
+        options,
+    )
+}
+
+/// Query data from the matching queryables in the system.
+/// Replies are provided through a callback function.
+///
+/// @param session: The zenoh session.
+/// @param key_expr: The key expression matching resources to query.
+/// @param parameters: The query's parameters string, similar to a url's query segment.
+/// @param parameters_len: The parameters substring length.
+/// @param callback: The callback function that will be called on reception of replies for this query. It will be automatically dropped once all replies are processed.
+/// @param options: Additional options for the get. All owned fields will be consumed.
+///
+/// @return 0 in case of success, a negative error value upon failure.
+#[allow(clippy::missing_safety_doc)]
+#[no_mangle]
+pub unsafe extern "C" fn z_get_with_parameters_substr(
+    session: &z_loaned_session_t,
+    key_expr: &z_loaned_keyexpr_t,
+    parameters: *const c_char,
+    parameters_len: usize,
+    callback: &mut z_moved_closure_reply_t,
+    options: Option<&mut z_get_options_t>,
+) -> result::z_result_t {
     let callback = callback.take_rust_type();
-    let p = if parameters.is_null() {
-        ""
-    } else {
-        CStr::from_ptr(parameters).to_str().unwrap()
+    let pcs = match CStringView::new_borrowed(parameters as *const c_char, parameters_len) {
+        Ok(cs) => cs,
+        Err(r) => {
+            if let Some(o) = options {
+                o.clear();
+            }
+            return r;
+        }
     };
+
+    let p: &str = match (&pcs).try_into() {
+        Ok(s) => s,
+        Err(e) => {
+            if let Some(o) = options {
+                o.clear();
+            }
+            crate::report_error!("Parameters is not a valid utf-8 string: {e}");
+            return Z_EINVAL;
+        }
+    };
+
     let session = session.as_rust_type_ref();
     let key_expr = key_expr.as_rust_type_ref();
     let mut get = session.get(Selector::from((key_expr, p)));
@@ -302,8 +366,8 @@ pub unsafe extern "C" fn z_get(
             get = get.encoding(encoding.take_rust_type());
         }
         #[cfg(feature = "unstable")]
-        if let Some(source_info) = options.source_info.take() {
-            get = get.source_info(source_info.take_rust_type());
+        if let Some(source_info) = options.source_info {
+            get = get.source_info(source_info.as_rust_type_ref().clone());
         }
         if let Some(attachment) = options.attachment.take() {
             get = get.attachment(attachment.take_rust_type());
@@ -314,16 +378,21 @@ pub unsafe extern "C" fn z_get(
             .target(options.target.into())
             .congestion_control(options.congestion_control.into())
             .priority(options.priority.into())
-            .express(options.is_express);
-        #[cfg(feature = "unstable")]
-        {
-            get = get
-                .allowed_destination(options.allowed_destination.into())
-                .accept_replies(options.accept_replies.into());
-        }
+            .express(options.is_express)
+            .allowed_destination(options.allowed_destination.into())
+            .accept_replies(options.accept_replies.into());
 
         if options.timeout_ms != 0 {
             get = get.timeout(std::time::Duration::from_millis(options.timeout_ms));
+        }
+
+        #[cfg(feature = "unstable")]
+        if let Some(ct) = options
+            .cancellation_token
+            .take()
+            .and_then(|ct| ct.take_rust_type())
+        {
+            get = get.cancellation_token(ct);
         }
     }
     match get
@@ -342,7 +411,7 @@ pub unsafe extern "C" fn z_get(
         Ok(()) => result::Z_OK,
         Err(e) if e.downcast_ref::<SessionClosedError>().is_some() => result::Z_ESESSION_CLOSED,
         Err(e) => {
-            tracing::error!("{}", e);
+            crate::report_error!("{}", e);
             result::Z_EGENERIC
         }
     }

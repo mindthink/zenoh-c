@@ -91,11 +91,11 @@ pub extern "C" fn z_closure_hello_call(
     match closure._call {
         Some(call) => call(hello, closure._context),
         None => {
-            tracing::error!("Attempted to call an uninitialized closure!");
+            crate::report_error!("Attempted to call an uninitialized closure!");
         }
     }
 }
-/// Drops the closure. Droping an uninitialized closure is a no-op.
+/// Drops the closure. Dropping an uninitialized closure is a no-op.
 #[no_mangle]
 pub extern "C" fn z_closure_hello_drop(this_: &mut z_moved_closure_hello_t) {
     let _ = this_.take_rust_type();

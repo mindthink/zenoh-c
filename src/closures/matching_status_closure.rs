@@ -106,13 +106,13 @@ pub extern "C" fn z_closure_matching_status_call(
     match closure._call {
         Some(call) => call(mathing_status, closure._context),
         None => {
-            tracing::error!("Attempted to call an uninitialized closure!");
+            crate::report_error!("Attempted to call an uninitialized closure!");
         }
     }
 }
 
 /// @warning This API has been marked as unstable: it works as advertised, but it may be changed in a future release.
-/// @brief Drops the closure, resetting it to its gravestone state. Droping an uninitialized closure is a no-op.
+/// @brief Drops the closure, resetting it to its gravestone state. Dropping an uninitialized closure is a no-op.
 #[no_mangle]
 pub extern "C" fn z_closure_matching_status_drop(closure_: &mut z_moved_closure_matching_status_t) {
     let _ = closure_.take_rust_type();

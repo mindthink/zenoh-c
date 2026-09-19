@@ -26,7 +26,7 @@ This repository provides a C binding based on the main [Zenoh implementation wri
 ## How to build it
 
 1. Make sure that [Rust](https://www.rust-lang.org) is available on your platform.
-   Please check [here](https://www.rust-lang.org/tools/install) to learn how to install it.
+   You can [install Rust](https://www.rust-lang.org/tools/install) using rustup.
    If you already have the Rust toolchain installed, make sure it is up-to-date with:
 
    ```bash
@@ -140,7 +140,7 @@ cmake ../zenoh-c/examples -DCMAKE_INSTALL_PREFIX=~/.local
 
 ## Running the Examples
 
-See information about running examples [here](./examples/README.md).
+See [documentation](./examples/README.md) about running examples.
 
 ## Documentation
 
@@ -188,16 +188,69 @@ and release files will be located at
 
 > :warning: **WARNING** :warning: : Perhaps additional efforts are necessary, that will depend of your environment.
 
-## Rust Version
+## Minimal supported Rust Version
 
-The Rust version we use is defined in [rust-toolchain.toml](rust-toolchain.toml), which is `1.85.0`.
-There might be some memory mapping issue if you use the later version.
+The minimal supported Rust version (MSRV) is 1.75, as specified in [Cargo.toml](Cargo.toml).
+By default, builds and tests are run using the version defined in [rust-toolchain.toml](rust-toolchain.toml).
 
-You can also specify the Rust version.
+The following settings are related to building with a specific Rust version:
+
+- `ZENOHC_CARGO_CHANNEL` allows selecting a specific toolchain version.
+- `ZENOHC_MSRV_1_75` should be set to `TRUE` to lock dependencies to versions that can be built with Rust 1.75.
+- `ZENOHC_COPY_SOURCE_CARGO_LOCK` can be set to `FALSE` if the source `Cargo.lock` is incompatible with the
+  selected channel. Automatically set to `FALSE` if `ZENOHC_MSRV_1_75` is selected: the dependencies for
+  Rust 1.75 are known to be incompatible with the source `Cargo.lock`.
+
+For example to build with some old Rust version starting from Rust 1.75:
 
 ```bash
-cmake ../zenoh-c -DZENOHC_CARGO_CHANNEL="+1.85.0"
+cmake ../zenoh-c -DZENOHC_CARGO_CHANNEL="+1.75.0" -DZENOHC_MSRV_1_75=TRUE
 ```
+
+To build with nigtly Rust:
+
+```bash
+cmake ../zenoh-c -DZENOHC_CARGO_CHANNEL="+nightly"
+```
+
+To build on a system with preinstalled Rust of some old version if `cargo` doesn't allow to select toolchain:
+
+```bash
+cmake ../zenoh-c -DZENOHC_MSRV_1_75=TRUE
+```
+
+## Selecting the cargo command
+
+By default the build invokes the `cargo` command found in the `PATH`. It can be overridden with the
+`CARGO_COMMAND` environment variable (the same variable as used by
+[colcon-cargo](https://github.com/colcon/colcon-cargo)). This is useful when Rust is installed via
+distribution packages providing versioned commands, such as the Ubuntu `cargo-1.91` package:
+
+```bash
+CARGO_COMMAND=cargo-1.91 cmake ../zenoh-c
+cmake --build .
+```
+
+The variable is read at cmake configuration time and baked into the generated build rules, so it has
+to be set when running `cmake` to configure the project. The same variable is also honored by the
+internal `build.rs` invocations of cargo.
+
+> :warning: `CARGO_COMMAND` selects the cargo executable, not the rustc executable: the compiler is
+> the one that the selected cargo resolves for itself. A cargo installed from distribution packages
+> resolves the matching rustc of its own toolchain, but on a system managed by
+> [rustup](https://rustup.rs) do **not** point `CARGO_COMMAND` at a toolchain binary such as
+> `~/.rustup/toolchains/<toolchain>/bin/cargo`. This bypasses the rustup proxies, leaving
+> `RUSTUP_TOOLCHAIN` unset, and the `rustc` proxy then resolves a toolchain independently for each
+> crate being compiled: dependencies from the registry get the rustup default toolchain, while
+> crates whose sources are covered by a `rust-toolchain.toml` get the pinned one. The build ends up
+> mixing rustc versions and fails with
+> `error[E0514]: found crate ... compiled by an incompatible version of rustc`. To select a rustup
+> toolchain, set `RUSTUP_TOOLCHAIN=<toolchain>`, run the build under `rustup run <toolchain> ...`,
+> or use the [`ZENOHC_CARGO_CHANNEL`](#minimal-supported-rust-version) option.
+>
+> :warning: [rust-toolchain.toml](rust-toolchain.toml) is a rustup feature. When `CARGO_COMMAND`
+> designates a cargo that is not managed by rustup, the version pinned by that file is ignored and
+> the build uses the toolchain of the selected cargo.
 
 ## Zenoh features support (enabling/disabling protocols, etc)
 

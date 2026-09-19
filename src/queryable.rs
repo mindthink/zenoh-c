@@ -26,15 +26,12 @@ use crate::{
     result,
     transmute::{IntoRustType, LoanedCTypeRef, RustTypeRef, RustTypeRefUninit, TakeRustType},
     z_closure_query_call, z_closure_query_loan, z_congestion_control_t, z_loaned_bytes_t,
-    z_loaned_encoding_t, z_loaned_keyexpr_t, z_loaned_session_t, z_moved_bytes_t,
-    z_moved_closure_query_t, z_moved_encoding_t, z_moved_queryable_t, z_priority_t, z_timestamp_t,
-    z_view_string_from_substr, z_view_string_t,
+    z_loaned_encoding_t, z_loaned_keyexpr_t, z_loaned_session_t, z_locality_default, z_locality_t,
+    z_moved_bytes_t, z_moved_closure_query_t, z_moved_encoding_t, z_moved_queryable_t,
+    z_priority_t, z_reply_keyexpr_t, z_timestamp_t, z_view_string_from_substr, z_view_string_t,
 };
 #[cfg(feature = "unstable")]
-use crate::{
-    transmute::IntoCType, z_entity_global_id_t, z_moved_source_info_t, zc_locality_default,
-    zc_locality_t,
-};
+use crate::{transmute::IntoCType, z_entity_global_id_t, z_source_info_t};
 decl_c_type!(
     owned(z_owned_queryable_t, option Queryable<()>),
     loaned(z_loaned_queryable_t),
@@ -131,11 +128,9 @@ pub extern "C" fn z_query_clone(dst: &mut MaybeUninit<z_owned_query_t>, this_: &
 pub struct z_queryable_options_t {
     /// The completeness of the Queryable.
     pub complete: bool,
-    #[cfg(feature = "unstable")]
-    /// @warning This API has been marked as unstable: it works as advertised, but it may be changed in a future release.
     /// Restricts the matching requests that will be received by this Queryable to the ones
     /// that have the compatible allowed_destination.
-    pub allowed_origin: zc_locality_t,
+    pub allowed_origin: z_locality_t,
 }
 /// Constructs the default value for `z_query_reply_options_t`.
 #[no_mangle]
@@ -143,8 +138,7 @@ pub struct z_queryable_options_t {
 pub extern "C" fn z_queryable_options_default(this_: &mut MaybeUninit<z_queryable_options_t>) {
     this_.write(z_queryable_options_t {
         complete: false,
-        #[cfg(feature = "unstable")]
-        allowed_origin: zc_locality_default(),
+        allowed_origin: z_locality_default(),
     });
 }
 
@@ -155,8 +149,10 @@ pub extern "C" fn z_queryable_options_default(this_: &mut MaybeUninit<z_queryabl
 pub struct z_query_reply_options_t {
     /// The encoding of the reply payload.
     pub encoding: Option<&'static mut z_moved_encoding_t>,
+    /// @warning This API is deprecated. Reply congestion control is not supported anymore.
     /// The congestion control to apply when routing the reply.
     pub congestion_control: z_congestion_control_t,
+    /// @warning This API is deprecated. Reply priority is not supported anymore.
     /// The priority of the reply.
     pub priority: z_priority_t,
     /// If set to ``true``, this reply will not be batched. This usually has a positive impact on latency but negative impact on throughput.
@@ -167,7 +163,7 @@ pub struct z_query_reply_options_t {
     /// @warning This API has been marked as unstable: it works as advertised, but it may be changed in a future release.
     ///
     /// The source info for the reply.
-    pub source_info: Option<&'static mut z_moved_source_info_t>,
+    pub source_info: Option<&'static z_source_info_t>,
     /// The attachment to this reply.
     pub attachment: Option<&'static mut z_moved_bytes_t>,
 }
@@ -178,7 +174,7 @@ pub struct z_query_reply_options_t {
 pub extern "C" fn z_query_reply_options_default(this_: &mut MaybeUninit<z_query_reply_options_t>) {
     this_.write(z_query_reply_options_t {
         encoding: None,
-        congestion_control: CongestionControl::DEFAULT_RESPONSE.into(),
+        congestion_control: CongestionControl::Block.into(),
         priority: Priority::default().into(),
         is_express: false,
         timestamp: None,
@@ -211,8 +207,10 @@ pub extern "C" fn z_query_reply_err_options_default(
 #[allow(non_camel_case_types)]
 #[repr(C)]
 pub struct z_query_reply_del_options_t {
+    /// @warning This API is deprecated. Reply congestion control is not supported anymore.
     /// The congestion control to apply when routing the reply.
     pub congestion_control: z_congestion_control_t,
+    /// @warning This API is deprecated. Reply priority is not supported anymore.
     /// The priority of the reply.
     pub priority: z_priority_t,
     /// If set to ``true``, this reply will not be batched. This usually has a positive impact on latency but negative impact on throughput.
@@ -223,7 +221,7 @@ pub struct z_query_reply_del_options_t {
     /// @warning This API has been marked as unstable: it works as advertised, but it may be changed in a future release.
     ///
     /// The source info for the reply.
-    pub source_info: Option<&'static mut z_moved_source_info_t>,
+    pub source_info: Option<&'static z_source_info_t>,
     /// The attachment to this reply.
     pub attachment: Option<&'static mut z_moved_bytes_t>,
 }
@@ -235,7 +233,7 @@ pub extern "C" fn z_query_reply_del_options_default(
     this: &mut MaybeUninit<z_query_reply_del_options_t>,
 ) {
     this.write(z_query_reply_del_options_t {
-        congestion_control: CongestionControl::DEFAULT_RESPONSE.into(),
+        congestion_control: CongestionControl::Block.into(),
         priority: Priority::default().into(),
         is_express: false,
         timestamp: None,
@@ -256,11 +254,9 @@ fn _declare_queryable_inner<'a, 'b>(
     let callback = callback.take_rust_type();
     let mut builder = session.declare_queryable(keyexpr);
     if let Some(options) = options {
-        builder = builder.complete(options.complete);
-        #[cfg(feature = "unstable")]
-        {
-            builder = builder.allowed_origin(options.allowed_origin.into())
-        }
+        builder = builder
+            .complete(options.complete)
+            .allowed_origin(options.allowed_origin.into());
     }
     let queryable = builder.callback(move |query| {
         let mut owned_query = Some(query);
@@ -299,7 +295,7 @@ pub extern "C" fn z_declare_queryable(
             result::Z_OK
         }
         Err(e) => {
-            tracing::error!("{}", e);
+            crate::report_error!("{}", e);
             this.write(None);
             result::Z_EGENERIC
         }
@@ -326,7 +322,7 @@ pub extern "C" fn z_declare_background_queryable(
     match queryable.background().wait() {
         Ok(_) => result::Z_OK,
         Err(e) => {
-            tracing::error!("{}", e);
+            crate::report_error!("{}", e);
             result::Z_EGENERIC
         }
     }
@@ -337,7 +333,7 @@ pub extern "C" fn z_declare_background_queryable(
 #[allow(clippy::missing_safety_doc)]
 #[no_mangle]
 pub extern "C" fn z_queryable_drop(this_: &mut z_moved_queryable_t) {
-    std::mem::drop(this_.take_rust_type())
+    let _ = z_undeclare_queryable(this_);
 }
 
 /// Returns ``true`` if queryable is valid, ``false`` otherwise.
@@ -356,10 +352,10 @@ pub extern "C" fn z_queryable_id(queryable: &z_loaned_queryable_t) -> z_entity_g
 
 /// Sends a reply to a query.
 ///
-/// This function must be called inside of a Queryable callback passing the
-/// query received as parameters of the callback function. This function can
-/// be called multiple times to send multiple replies to a query. The reply
-/// will be considered complete when the Queryable callback returns.
+/// This function can be called multiple times to send multiple replies to a
+/// query. The query will be considered finalized when the query object has no
+/// live references, allowing `z_query_clone()` or `z_query_take_from_loaned()`
+/// to be used to produce replies outside of the Queryable callback.
 ///
 /// @param this_: The query to reply to.
 /// @param key_expr: The key of this reply.
@@ -384,8 +380,8 @@ pub extern "C" fn z_query_reply(
             reply = reply.encoding(encoding.take_rust_type());
         };
         #[cfg(feature = "unstable")]
-        if let Some(source_info) = options.source_info.take() {
-            reply = reply.source_info(source_info.take_rust_type());
+        if let Some(source_info) = options.source_info {
+            reply = reply.source_info(source_info.as_rust_type_ref().clone());
         };
         if let Some(attachment) = options.attachment.take() {
             reply = reply.attachment(attachment.take_rust_type());
@@ -393,13 +389,11 @@ pub extern "C" fn z_query_reply(
         if let Some(timestamp) = options.timestamp.as_ref() {
             reply = reply.timestamp(Some(timestamp.into_rust_type()));
         }
-        reply = reply.priority(options.priority.into());
-        reply = reply.congestion_control(options.congestion_control.into());
         reply = reply.express(options.is_express);
     }
 
     if let Err(e) = reply.wait() {
-        tracing::error!("{}", e);
+        crate::report_error!("{}", e);
         return result::Z_EGENERIC;
     }
     result::Z_OK
@@ -407,10 +401,10 @@ pub extern "C" fn z_query_reply(
 
 /// Sends a error reply to a query.
 ///
-/// This function must be called inside of a Queryable callback passing the
-/// query received as parameters of the callback function. This function can
-/// be called multiple times to send multiple replies to a query. The reply
-/// will be considered complete when the Queryable callback returns.
+/// This function can be called multiple times to send multiple replies to a
+/// query. The query will be considered finalized when the query object has no
+/// live references, allowing `z_query_clone()` or `z_query_take_from_loaned()`
+/// to be used to produce replies outside of the Queryable callback.
 ///
 /// @param this_: The query to reply to.
 /// @param payload: The payload carrying error message. Will be consumed.
@@ -434,7 +428,7 @@ pub unsafe extern "C" fn z_query_reply_err(
     );
 
     if let Err(e) = reply.wait() {
-        tracing::error!("{}", e);
+        crate::report_error!("{}", e);
         return result::Z_EGENERIC;
     }
     result::Z_OK
@@ -442,10 +436,10 @@ pub unsafe extern "C" fn z_query_reply_err(
 
 /// Sends a delete reply to a query.
 ///
-/// This function must be called inside of a Queryable callback passing the
-/// query received as parameters of the callback function. This function can
-/// be called multiple times to send multiple replies to a query. The reply
-/// will be considered complete when the Queryable callback returns.
+/// This function can be called multiple times to send multiple replies to a
+/// query. The query will be considered finalized when the query object has no
+/// live references, allowing `z_query_clone()` or `z_query_take_from_loaned()`
+/// to be used to produce replies outside of the Queryable callback.
 ///
 /// @param this_: The query to reply to.
 /// @param key_expr: The key of this delete reply.
@@ -465,8 +459,8 @@ pub unsafe extern "C" fn z_query_reply_del(
     let mut reply = query.reply_del(key_expr);
     if let Some(options) = options {
         #[cfg(feature = "unstable")]
-        if let Some(source_info) = options.source_info.take() {
-            reply = reply.source_info(source_info.take_rust_type());
+        if let Some(source_info) = options.source_info {
+            reply = reply.source_info(source_info.as_rust_type_ref().clone());
         };
         if let Some(attachment) = options.attachment.take() {
             reply = reply.attachment(attachment.take_rust_type());
@@ -474,13 +468,11 @@ pub unsafe extern "C" fn z_query_reply_del(
         if let Some(timestamp) = options.timestamp.as_ref() {
             reply = reply.timestamp(Some(timestamp.into_rust_type()));
         }
-        reply = reply.priority(options.priority.into());
-        reply = reply.congestion_control(options.congestion_control.into());
         reply = reply.express(options.is_express);
     }
 
     if let Err(e) = reply.wait() {
-        tracing::error!("{}", e);
+        crate::report_error!("{}", e);
         return result::Z_EGENERIC;
     }
     result::Z_OK
@@ -564,13 +556,33 @@ pub extern "C" fn z_query_attachment_mut(
         .map(|a| a.as_loaned_c_type_mut())
 }
 
+#[cfg(feature = "unstable")]
+/// @warning This API has been marked as unstable: it works as advertised, but it may be changed in a future release.
+/// @brief Returns the query source_info. Will return NULL, if source info is not set.
+#[no_mangle]
+pub extern "C" fn z_query_source_info(this_: &z_loaned_query_t) -> Option<&z_source_info_t> {
+    use crate::transmute::CTypeRef;
+
+    this_
+        .as_rust_type_ref()
+        .source_info()
+        .map(|si| si.as_ctype_ref())
+}
+
+/// @brief Gets the accept replies setting of the query,
+/// i.e. which replies are accepted by the query originator.
+#[no_mangle]
+pub extern "C" fn z_query_accepts_replies(this_: &z_loaned_query_t) -> z_reply_keyexpr_t {
+    this_.as_rust_type_ref().accepts_replies().into()
+}
+
 /// Undeclares a `z_owned_queryable_t`.
 /// Returns 0 in case of success, negative error code otherwise.
 #[no_mangle]
 pub extern "C" fn z_undeclare_queryable(this_: &mut z_moved_queryable_t) -> result::z_result_t {
     if let Some(qable) = this_.take_rust_type() {
-        if let Err(e) = qable.undeclare().wait() {
-            tracing::error!("{}", e);
+        if let Err(e) = qable.undeclare().wait_callbacks().wait() {
+            crate::report_error!("{}", e);
             return result::Z_EGENERIC;
         }
     }

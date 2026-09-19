@@ -274,6 +274,24 @@ Functions
 .. doxygenfunction:: z_timestamp_id
 .. doxygenfunction:: z_timestamp_ntp64_time
 
+Source Info
+-----------
+Types
+^^^^^
+.. doxygenstruct:: z_source_info_t
+.. doxygenstruct:: z_entity_global_id_t
+
+Functions
+^^^^^^^^^
+.. doxygenfunction:: z_source_info_new
+.. doxygenfunction:: z_source_info_id
+.. doxygenfunction:: z_source_info_sn
+
+.. doxygenfunction:: z_entity_global_id_zid
+.. doxygenfunction:: z_entity_global_id_eid
+
+
+
 
 Payload
 -------
@@ -436,8 +454,11 @@ Functions
 .. doxygenfunction:: z_config_default
 .. doxygenfunction:: zc_config_from_env
 .. doxygenfunction:: zc_config_from_file
+.. doxygenfunction:: zc_config_from_file_substr
 .. doxygenfunction:: zc_config_from_str
+.. doxygenfunction:: zc_config_from_substr
 .. doxygenfunction:: zc_config_insert_json5
+.. doxygenfunction:: zc_config_insert_json5_from_substr
 .. doxygenfunction:: zc_config_to_string
 
 Session management
@@ -449,14 +470,38 @@ Types
 .. doxygenstruct:: z_loaned_session_t
 .. doxygenstruct:: z_id_t
 
-.. doxygenstruct:: z_loaned_closure_zid_t
+.. doxygenstruct:: z_owned_transport_t
+.. doxygenstruct:: z_loaned_transport_t
+.. doxygenstruct:: z_owned_link_t
+.. doxygenstruct:: z_loaned_link_t
+.. doxygenstruct:: z_info_links_options_t
+    :members:
+.. doxygenstruct:: z_owned_transport_event_t
+.. doxygenstruct:: z_loaned_transport_event_t
+.. doxygenstruct:: z_owned_link_event_t
+.. doxygenstruct:: z_loaned_link_event_t
+.. doxygenstruct:: z_owned_transport_events_listener_t
+.. doxygenstruct:: z_loaned_transport_events_listener_t
+.. doxygenstruct:: z_transport_events_listener_options_t
+    :members:
+.. doxygenstruct:: z_owned_link_events_listener_t
+.. doxygenstruct:: z_loaned_link_events_listener_t
+.. doxygenstruct:: z_link_events_listener_options_t
+    :members:
+
 .. doxygenstruct:: z_owned_closure_zid_t
+.. doxygenstruct:: z_loaned_closure_zid_t
+.. doxygenstruct:: z_owned_closure_transport_event_t
+.. doxygenstruct:: z_loaned_closure_transport_event_t
+.. doxygenstruct:: z_owned_closure_link_event_t
+.. doxygenstruct:: z_loaned_closure_link_event_t
 
 Functions
 ^^^^^^^^^
 .. doxygenfunction:: z_open
 .. doxygenfunction:: z_close
 .. doxygenfunction:: z_session_is_closed
+.. doxygenfunction:: z_session_id
 
 .. doxygenfunction:: z_session_loan
 .. doxygenfunction:: z_session_loan_mut
@@ -467,10 +512,59 @@ Functions
 .. doxygenfunction:: z_info_peers_zid
 .. doxygenfunction:: z_id_to_string
 
+.. doxygenfunction:: z_info_transports
+.. doxygenfunction:: z_transport_loan
+.. doxygenfunction:: z_transport_loan_mut
+.. doxygenfunction:: z_transport_drop
+.. doxygenfunction:: z_transport_clone
+.. doxygenfunction:: z_transport_zid
+.. doxygenfunction:: z_transport_whatami
+.. doxygenfunction:: z_transport_is_qos
+.. doxygenfunction:: z_transport_is_multicast
+.. doxygenfunction:: z_transport_is_shm
+
+.. doxygenfunction:: z_info_links
+.. doxygenfunction:: z_link_loan
+.. doxygenfunction:: z_link_loan_mut
+.. doxygenfunction:: z_link_drop
+.. doxygenfunction:: z_link_clone
+.. doxygenfunction:: z_link_zid
+.. doxygenfunction:: z_link_src
+.. doxygenfunction:: z_link_dst
+.. doxygenfunction:: z_link_group
+.. doxygenfunction:: z_link_mtu
+.. doxygenfunction:: z_link_is_streamed
+.. doxygenfunction:: z_link_interfaces
+.. doxygenfunction:: z_link_auth_identifier
+.. doxygenfunction:: z_link_priorities
+.. doxygenfunction:: z_link_reliability
+
+.. doxygenfunction:: z_declare_transport_events_listener
+.. doxygenfunction:: z_undeclare_transport_events_listener
+.. doxygenfunction:: z_transport_events_listener_options_default
+.. doxygenfunction:: z_transport_event_kind
+.. doxygenfunction:: z_transport_event_transport
+.. doxygenfunction:: z_transport_event_transport_mut
+
+.. doxygenfunction:: z_declare_link_events_listener
+.. doxygenfunction:: z_undeclare_link_events_listener
+.. doxygenfunction:: z_link_events_listener_options_default
+.. doxygenfunction:: z_link_event_kind
+.. doxygenfunction:: z_link_event_link
+.. doxygenfunction:: z_link_event_link_mut
+
 .. doxygenfunction:: z_closure_zid_drop
 .. doxygenfunction:: z_closure_zid_loan
 .. doxygenfunction:: z_closure_zid_call
 .. doxygenfunction:: z_closure_zid
+.. doxygenfunction:: z_closure_transport_event_drop
+.. doxygenfunction:: z_closure_transport_event_loan
+.. doxygenfunction:: z_closure_transport_event_call
+.. doxygenfunction:: z_closure_transport_event
+.. doxygenfunction:: z_closure_link_event_drop
+.. doxygenfunction:: z_closure_link_event_loan
+.. doxygenfunction:: z_closure_link_event_call
+.. doxygenfunction:: z_closure_link_event
 
 Matching
 ========
@@ -505,6 +599,7 @@ Types
 .. doxygenenum:: z_congestion_control_t
 .. doxygenenum:: z_priority_t
 .. doxygenenum:: z_reliability_t
+.. doxygenenum:: z_locality_t
 
 .. doxygenstruct:: z_put_options_t
     :members:
@@ -538,7 +633,9 @@ Functions
 .. doxygenfunction:: z_publisher_put_options_default
 .. doxygenfunction:: z_publisher_delete_options_default
 
+.. doxygenfunction:: z_locality_default
 .. doxygenfunction:: z_reliability_default
+.. doxygenfunction:: z_priority_default
 
 .. doxygenfunction:: z_publisher_get_matching_status
 .. doxygenfunction:: z_publisher_declare_matching_listener
@@ -654,6 +751,7 @@ Functions
 .. doxygenfunction:: z_query_reply
 .. doxygenfunction:: z_query_reply_err
 .. doxygenfunction:: z_query_reply_del
+.. doxygenfunction:: z_query_source_info
 
 .. doxygenfunction:: z_closure_query_call
 .. doxygenfunction:: z_closure_query_loan
@@ -691,7 +789,7 @@ Types
     :members:
 .. doxygenenum:: z_query_target_t
 .. doxygenenum:: z_consolidation_mode_t
-.. doxygenenum:: zc_reply_keyexpr_t
+.. doxygenenum:: z_reply_keyexpr_t
 .. doxygenstruct:: z_query_consolidation_t
 
 .. doxygenstruct:: z_querier_options_t
@@ -710,6 +808,7 @@ Functions
 ---------
 
 .. doxygenfunction:: z_get
+.. doxygenfunction:: z_get_with_parameters_substr
 .. doxygenfunction:: z_get_options_default
 
 .. doxygenfunction:: z_query_consolidation_default
@@ -718,7 +817,7 @@ Functions
 .. doxygenfunction:: z_query_consolidation_monotonic
 .. doxygenfunction:: z_query_consolidation_latest
 .. doxygenfunction:: z_query_target_default
-.. doxygenfunction:: zc_reply_keyexpr_default
+.. doxygenfunction:: z_reply_keyexpr_default
 
 .. doxygenfunction:: z_declare_querier
 .. doxygenfunction:: z_undeclare_querier
@@ -727,6 +826,7 @@ Functions
 .. doxygenfunction:: z_querier_id
 .. doxygenfunction:: z_querier_keyexpr
 .. doxygenfunction:: z_querier_get
+.. doxygenfunction:: z_querier_get_with_parameters_substr
 .. doxygenfunction:: z_querier_get_matching_status
 .. doxygenfunction:: z_querier_declare_matching_listener
 .. doxygenfunction:: z_querier_declare_background_matching_listener
@@ -823,6 +923,25 @@ Functions
 .. doxygenfunction:: z_liveliness_token_options_default
 .. doxygenfunction:: z_liveliness_get_options_default
 
+Cancellation Token
+==================
+
+Types
+-----
+
+.. doxygenstruct:: z_owned_cancellation_token_t
+.. doxygenstruct:: z_loaned_cancellation_token_t
+
+Functions
+---------
+.. doxygenfunction:: z_cancellation_token_new
+.. doxygenfunction:: z_cancellation_token_cancel
+.. doxygenfunction:: z_cancellation_token_is_cancelled
+.. doxygenfunction:: z_cancellation_token_loan
+.. doxygenfunction:: z_cancellation_token_loan_mut
+.. doxygenfunction:: z_cancellation_token_clone
+.. doxygenfunction:: z_cancellation_token_drop
+
 Logging
 =======
 
@@ -853,6 +972,7 @@ Functions
 ---------
 .. doxygenfunction:: zc_stop_z_runtime
 .. doxygenfunction:: zc_cleanup_orphaned_shm_segments 
+.. doxygenfunction:: zc_get_last_error
 
 Ext
 ===
@@ -1023,7 +1143,6 @@ Types
 .. doxygenstruct:: ze_loaned_publication_cache_t
 .. doxygenstruct:: ze_publication_cache_options_t
     :members:
-.. doxygenenum:: zc_locality_t
 
 Functions
 ^^^^^^^^^

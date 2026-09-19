@@ -60,15 +60,24 @@ int main(int argc, char** argv) {
     printf("Sending Query '%s'...\n", args.selector);
     z_get_options_t opts;
     z_get_options_default(&opts);
-    opts.target = Z_QUERY_TARGET_ALL;
+    opts.target = args.target;
+    opts.timeout_ms = args.timeout_ms;
+
+    z_owned_bytes_t payload;
+    if (args.value != NULL) {
+        z_bytes_from_static_str(&payload, args.value);
+        opts.payload = z_move(payload);
+    }
+
     z_owned_fifo_handler_reply_t handler;
     z_owned_closure_reply_t closure;
     z_fifo_channel_reply_new(&closure, &handler, 16);
     z_get(z_loan(s), z_loan(keyexpr), params, z_move(closure),
           &opts);  // here, the closure is moved and will be dropped by zenoh when adequate
     z_owned_reply_t reply;
-    for (z_result_t res = z_try_recv(z_loan(handler), &reply); res != Z_CHANNEL_DISCONNECTED;
-         res = z_try_recv(z_loan(handler), &reply)) {
+
+    z_result_t res;
+    while ((res = z_try_recv(z_loan(handler), &reply)) != Z_CHANNEL_DISCONNECTED) {
         if (res != Z_OK) {
             z_sleep_ms(50);
             continue;

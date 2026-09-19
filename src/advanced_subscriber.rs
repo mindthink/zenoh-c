@@ -268,7 +268,7 @@ pub unsafe extern "C" fn ze_advanced_subscriber_loan(
 /// This is equivalent to calling `ze_undeclare_advanced_subscriber()` and discarding its return value.
 #[no_mangle]
 pub extern "C" fn ze_advanced_subscriber_drop(this_: &mut ze_moved_advanced_subscriber_t) {
-    std::mem::drop(this_.take_rust_type())
+    let _ = ze_undeclare_advanced_subscriber(this_);
 }
 
 /// Returns ``true`` if advanced subscriber is valid, ``false`` otherwise.
@@ -304,7 +304,7 @@ pub extern "C" fn ze_declare_advanced_subscriber(
             result::Z_OK
         }
         Err(e) => {
-            tracing::error!("{}", e);
+            crate::report_error!("{}", e);
             this.write(None);
             result::Z_EGENERIC
         }
@@ -331,7 +331,7 @@ pub extern "C" fn ze_declare_background_advanced_subscriber(
     match subscriber.background().wait() {
         Ok(_) => result::Z_OK,
         Err(e) => {
-            tracing::error!("{}", e);
+            crate::report_error!("{}", e);
             result::Z_EGENERIC
         }
     }
@@ -346,8 +346,8 @@ pub extern "C" fn ze_undeclare_advanced_subscriber(
     this_: &mut ze_moved_advanced_subscriber_t,
 ) -> result::z_result_t {
     if let Some(s) = this_.take_rust_type() {
-        if let Err(e) = s.undeclare().wait() {
-            tracing::error!("{}", e);
+        if let Err(e) = s.undeclare().wait_callbacks().wait() {
+            crate::report_error!("{}", e);
             return result::Z_EGENERIC;
         }
     }
@@ -387,15 +387,15 @@ pub extern "C" fn ze_internal_sample_miss_listener_check(
 }
 
 /// @warning This API has been marked as unstable: it works as advertised, but it may be changed in a future release.
-/// @brief Undeclares the given sample miss listener, droping and invalidating it.
+/// @brief Undeclares the given sample miss listener, dropping and invalidating it.
 #[no_mangle]
 #[allow(clippy::missing_safety_doc)]
 pub extern "C" fn ze_sample_miss_listener_drop(this: &mut ze_moved_sample_miss_listener_t) {
-    std::mem::drop(this.take_rust_type())
+    let _ = ze_undeclare_sample_miss_listener(this);
 }
 
 /// @warning This API has been marked as unstable: it works as advertised, but it may be changed in a future release.
-/// @brief Undeclares the given sample miss listener, droping and invalidating it.
+/// @brief Undeclares the given sample miss listener, dropping and invalidating it.
 /// @return 0 in case of success, negative error code otherwise.
 #[no_mangle]
 #[allow(clippy::missing_safety_doc)]
@@ -403,8 +403,8 @@ pub extern "C" fn ze_undeclare_sample_miss_listener(
     this: &mut ze_moved_sample_miss_listener_t,
 ) -> result::z_result_t {
     if let Some(m) = this.take_rust_type() {
-        if let Err(e) = m.undeclare().wait() {
-            tracing::error!("{}", e);
+        if let Err(e) = m.undeclare().wait_callbacks().wait() {
+            crate::report_error!("{}", e);
             return result::Z_ENETWORK;
         }
     }
@@ -417,7 +417,7 @@ fn _advanced_subscriber_sample_miss_listener_declare_inner<'a>(
 ) -> zenoh_ext::SampleMissListenerBuilder<'a, Callback<zenoh_ext::Miss>> {
     let subscriber = subscriber.as_rust_type_ref();
     let callback = callback.take_rust_type();
-    let listener = subscriber.sample_miss_listener().callback_mut(move |miss| {
+    let listener = subscriber.sample_miss_listener().callback(move |miss| {
         let miss = ze_miss_t {
             source: miss.source().into_c_type(),
             nb: miss.nb(),
@@ -450,7 +450,7 @@ pub extern "C" fn ze_advanced_subscriber_declare_sample_miss_listener(
         }
         Err(e) => {
             this.write(None);
-            tracing::error!("{}", e);
+            crate::report_error!("{}", e);
             result::Z_EGENERIC
         }
     }
@@ -473,7 +473,7 @@ pub extern "C" fn ze_advanced_subscriber_declare_background_sample_miss_listener
     match listener.background().wait() {
         Ok(_) => result::Z_OK,
         Err(e) => {
-            tracing::error!("{}", e);
+            crate::report_error!("{}", e);
             result::Z_EGENERIC
         }
     }
@@ -525,7 +525,7 @@ pub extern "C" fn ze_advanced_subscriber_detect_publishers(
             result::Z_OK
         }
         Err(e) => {
-            tracing::error!("Failed to subscribe to liveliness: {e}");
+            crate::report_error!("Failed to subscribe to liveliness: {e}");
             liveliness_subscriber.write(None);
             result::Z_EGENERIC
         }
@@ -550,7 +550,7 @@ pub extern "C" fn ze_advanced_subscriber_detect_publishers_background(
     match builder.background().wait() {
         Ok(_) => result::Z_OK,
         Err(e) => {
-            tracing::error!("Failed to subscribe to liveliness: {e}");
+            crate::report_error!("Failed to subscribe to liveliness: {e}");
             result::Z_EGENERIC
         }
     }

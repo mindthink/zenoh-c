@@ -26,7 +26,6 @@ decl_c_type!(
 );
 
 #[no_mangle]
-/// @warning This API has been marked as unstable: it works as advertised, but it may be changed in a future release.
 /// @brief Constructs an empty matching listener.
 pub extern "C" fn z_internal_matching_listener_null(
     this_: &mut MaybeUninit<z_owned_matching_listener_t>,
@@ -35,13 +34,11 @@ pub extern "C" fn z_internal_matching_listener_null(
 }
 
 #[no_mangle]
-/// @warning This API has been marked as unstable: it works as advertised, but it may be changed in a future release.
 /// @brief Checks the matching listener is for the gravestone state
 pub extern "C" fn z_internal_matching_listener_check(this_: &z_owned_matching_listener_t) -> bool {
     this_.as_rust_type_ref().is_some()
 }
 
-/// @warning This API has been marked as unstable: it works as advertised, but it may be changed in a future release.
 /// @brief A struct that indicates if there exist Subscribers matching the Publisher's key expression or Queryables matching Querier's key expression and target.
 #[repr(C)]
 #[derive(Debug, Clone, Copy)]
@@ -50,16 +47,14 @@ pub struct z_matching_status_t {
     pub matching: bool,
 }
 
-/// @warning This API has been marked as unstable: it works as advertised, but it may be changed in a future release.
-/// @brief Undeclares the given matching listener, droping and invalidating it.
+/// @brief Undeclares the given matching listener, dropping and invalidating it.
 #[no_mangle]
 #[allow(clippy::missing_safety_doc)]
 pub extern "C" fn z_matching_listener_drop(this: &mut z_moved_matching_listener_t) {
-    std::mem::drop(this.take_rust_type())
+    let _ = z_undeclare_matching_listener(this);
 }
 
-/// @warning This API has been marked as unstable: it works as advertised, but it may be changed in a future release.
-/// @brief Undeclares the given matching listener, droping and invalidating it.
+/// @brief Undeclares the given matching listener, dropping and invalidating it.
 /// @return 0 in case of success, negative error code otherwise.
 #[no_mangle]
 #[allow(clippy::missing_safety_doc)]
@@ -67,8 +62,8 @@ pub extern "C" fn z_undeclare_matching_listener(
     this: &mut z_moved_matching_listener_t,
 ) -> result::z_result_t {
     if let Some(m) = this.take_rust_type() {
-        if let Err(e) = m.undeclare().wait() {
-            tracing::error!("{}", e);
+        if let Err(e) = m.undeclare().wait_callbacks().wait() {
+            crate::report_error!("{}", e);
             return result::Z_ENETWORK;
         }
     }

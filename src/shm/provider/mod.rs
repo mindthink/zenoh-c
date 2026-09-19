@@ -13,8 +13,10 @@
 //
 
 pub mod alloc_layout;
-pub(crate) mod alloc_layout_impl;
 pub mod chunk;
+pub mod precomputed_layout;
+pub(crate) mod precomputed_layout_impl;
+pub mod shared_shm_provider;
 pub mod shm_provider;
 pub mod shm_provider_backend;
 pub(crate) mod shm_provider_impl;
